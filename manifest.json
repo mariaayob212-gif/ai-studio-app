@@ -1,0 +1,13 @@
+{
+  "background_color": "#ffffff",
+  "description": "Flagship uncensored mobile-first Dark Romance, Psychological Thriller &amp; Visual Novel Roleplay Studio with deep psychological simulation, ambient soundscapes, infinite memory, and literary translation.",
+  "dir": "ltr",
+  "display": "standalone",
+  "name": "miro212",
+  "orientation": "any",
+  "scope": "/",
+  "short_name": "mimi",
+  "start_url": "/",
+  "theme_color": "#ff3f9a",
+  "id": "com.miro212.mimiapp"
+}
