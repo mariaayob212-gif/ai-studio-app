@@ -1,0 +1,6 @@
+{
+  "name": "Obsidian Noir - Dark Romance & Psychological Roleplay Studio",
+  "description": "Flagship uncensored mobile-first Dark Romance, Psychological Thriller & Visual Novel Roleplay Studio with deep psychological simulation, ambient soundscapes, infinite memory, and literary translation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

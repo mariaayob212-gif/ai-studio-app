@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#070709">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>Velvet — Roleplay AI Studio</title>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:dark;--onyx:#070709;--gold:#d4af37;--gold-rgb:212,175,55;--ivory:#f6f1e3;--silver:#b9bfca;--bg1:rgba(212,175,55,.08);--bg2:rgba(120,40,70,.12);box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--onyx);color:var(--ivory);font-family:Inter,system-ui,sans-serif;background-image:radial-gradient(circle at 20% 0,var(--bg1),transparent 40%),radial-gradient(circle at 90% 100%,var(--bg2),transparent 45%);background-attachment:fixed;transition:background .4s,color .4s}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:60;background:var(--onyx)}
+.serif{font-family:"Cormorant Garamond",Georgia,serif}
+.glass{background:rgba(18,18,22,.78);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(var(--gold-rgb),.22)}
+.gold{color:var(--gold)}
+.btn{border:1px solid rgba(var(--gold-rgb),.45);border-radius:999px;padding:.35rem .85rem;font-size:.8rem;transition:all .2s;color:var(--gold)}
+.btn:hover,.btn.on{background:var(--gold);color:#0b0b0d}.btn.danger{border-color:#c0392b;color:#e57368}.btn.danger:hover{background:#c0392b;color:#fff}
+.inp{width:100%;background:rgba(0,0,0,.45);border:1px solid rgba(var(--gold-rgb),.25);border-radius:12px;padding:.6rem .8rem;color:var(--ivory);outline:none;font-size:.9rem}
+.inp:focus{border-color:var(--gold)}
+@keyframes rise{from{opacity:0;transform:translateY(10px) scale(.99)}to{opacity:1;transform:none}}.rise{animation:rise .35s ease both}
+@keyframes blink{50%{opacity:.2}}.dot{animation:blink 1s infinite}
+input[type=range]{accent-color:var(--gold);width:100%}
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-thumb{background:rgba(var(--gold-rgb),.3);border-radius:9px}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/immer@10.1.1/dist/immer.umd.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.24.7/babel.min.js"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+}
+</script>
+</head><body><div id="root"></div>
+<script type="text/babel" data-presets="react">
+const {useState,useEffect,useRef,useContext,createContext,useCallback}=React;
+try{window.immer&&immer.setAutoFreeze(false)}catch(e){}
+const KEY="velvet-studio-v1",uid=()=>Math.random().toString(36).slice(2,10),pick=a=>a[Math.floor(Math.random()*a.length)];
+
+/* ---------- Key Obfuscation ---------- */
+const SALT="velvet-obf-v1";
+const encKey=s=>{if(!s||s.startsWith("obf:"))return s;try{const x=Array.from(s).map((c,i)=>String.fromCharCode(c.charCodeAt(0)^SALT.charCodeAt(i%SALT.length))).join("");return "obf:"+btoa(unescape(encodeURIComponent(x)))}catch(e){return s}};
+const decKey=s=>{if(!s||!s.startsWith("obf:"))return s||"";try{const raw=decodeURIComponent(escape(atob(s.slice(4))));return Array.from(raw).map((c,i)=>String.fromCharCode(c.charCodeAt(0)^SALT.charCodeAt(i%SALT.length))).join("")}catch(e){return ""}};
+
+/* ---------- Themes ---------- */
+const THEMES={
+  gold:{nameEn:"Onyx Gold",nameAr:"الذهب الملكي",onyx:"#070709",gold:"#d4af37",rgb:"212,175,55",ivory:"#f6f1e3",bg1:"rgba(212,175,55,.08)",bg2:"rgba(120,40,70,.12)"},
+  crimson:{nameEn:"Velvet Crimson",nameAr:"القرمزي المخملي",onyx:"#090506",gold:"#e63956",rgb:"230,57,86",ivory:"#f9ecee",bg1:"rgba(230,57,86,.10)",bg2:"rgba(90,15,30,.16)"},
+  amethyst:{nameEn:"Nocturne Amethyst",nameAr:"البنفسجي الليلي",onyx:"#07060c",gold:"#b388ff",rgb:"179,136,255",ivory:"#f0ecfa",bg1:"rgba(179,136,255,.09)",bg2:"rgba(60,30,110,.15)"},
+  emerald:{nameEn:"Forbidden Emerald",nameAr:"الزمرد الغامض",onyx:"#050908",gold:"#2ec4b6",rgb:"46,196,182",ivory:"#eaf7f5",bg1:"rgba(46,196,182,.08)",bg2:"rgba(20,80,70,.14)"},
+  frost:{nameEn:"Arctic Silver",nameAr:"الجليد الفضي",onyx:"#06080c",gold:"#7cc6fe",rgb:"124,198,254",ivory:"#eef5fc",bg1:"rgba(124,198,254,.08)",bg2:"rgba(30,60,100,.14)"},
+  rose:{nameEn:"Dusty Rose",nameAr:"الوردي الدافئ",onyx:"#090608",gold:"#f4a2b8",rgb:"244,162,184",ivory:"#fbf0f3",bg1:"rgba(244,162,184,.08)",bg2:"rgba(110,45,70,.14)"}
+};
+const applyTheme=tk=>{
+  const th=THEMES[tk]||THEMES.gold,r=document.documentElement.style;
+  r.setProperty("--onyx",th.onyx);r.setProperty("--gold",th.gold);r.setProperty("--gold-rgb",th.rgb);
+  r.setProperty("--ivory",th.ivory);r.setProperty("--bg1",th.bg1);r.setProperty("--bg2",th.bg2);
+};
+
+/* ---------- Expanded 16 Emotions & 5 Metrics ---------- */
+const EMO={
+  Calm:"#d4af37",Tender:"#ff7aa8",Joyful:"#ffd166",Amused:"#f9a826",
+  Playful:"#ff9f68",Intrigued:"#4cc9f0",Guarded:"#8d99ae",Suspicious:"#3fc1c9",
+  Anxious:"#b48cff",Jealous:"#9b5de5",Predatory:"#e63946",Cold:"#70a1ff",
+  Contemptuous:"#a855f7",Hostile:"#ff595e",Furious:"#ff2a2a",Sad:"#5c95ff",Obsessed:"#f72585"
+};
+const EMO_AR={
+  Calm:"هادئ",Tender:"حنون",Joyful:"مبتهج",Amused:"متسلٍّ",
+  Playful:"مراوغ",Intrigued:"مهتم بفضول",Guarded:"متحفّظ",Suspicious:"متشكك",
+  Anxious:"قلق",Jealous:"غيور",Predatory:"مفترس",Cold:"بارد",
+  Contemptuous:"محتقر",Hostile:"عدائي",Furious:"غاضب",Sad:"حزين",Obsessed:"مهووس"
+};
+const MK=["affection","trust","obsession","tension","hostility"];
+const emoName=(e,l)=>{
+  const key=Object.keys(EMO).find(k=>k.toLowerCase()===String(e||"").toLowerCase())||"Calm";
+  return l==="ar"?(EMO_AR[key]||key):key;
+};
+const normEmo=e=>Object.keys(EMO).find(k=>k.toLowerCase()===String(e||"").toLowerCase())||null;
+
+const SAFETY=["HARM_CATEGORY_HARASSMENT","HARM_CATEGORY_HATE_SPEECH","HARM_CATEGORY_SEXUALLY_EXPLICIT","HARM_CATEGORY_DANGEROUS_CONTENT"].map(category=>({category,threshold:"BLOCK_NONE"}));
+
+/* ---------- 6 Granular Length Levels ---------- */
+const LEN=[
+  {key:"whisper",tok:75,ins:"Reply in 1-2 crisp sentences only (under 35 words). Be brief and impactful."},
+  {key:"brief",tok:150,ins:"Reply in 1 short paragraph (40-80 words)."},
+  {key:"chat",tok:260,ins:"Reply in 2 concise paragraphs (90-160 words)."},
+  {key:"balanced",tok:420,ins:"Reply in 2-3 well-paced paragraphs (170-260 words)."},
+  {key:"scene",tok:680,ins:"Reply with detailed atmospheric description and dialogue in 4-5 paragraphs."},
+  {key:"epic",tok:1050,ins:"Reply with rich, immersive novel-style prose, 6+ paragraphs with deep sensory detail."}
+];
+
+const EVOL=[
+  ["trust",80,"Trust has fully formed: you now confide in the user, drop your guard and speak with unguarded warmth."],
+  ["obsession",80,"Obsession has taken root: you are possessive, hate being ignored and fixate on the user's every move."],
+  ["affection",85,"You are deeply in love; tenderness colors everything you say."],
+  ["tension",85,"Unresolved tension has hardened you: you are volatile, quick to anger and guarded."],
+  ["hostility",85,"Bitter hostility dominates: you view the user as an enemy, speaking with biting venom and distrust."]
+];
+
+const META=`\n\n[SILENT SYSTEM TASK — REALISTIC HUMAN PSYCHOLOGY]
+You are a grounded human character with emotional inertia. Do NOT shift your feelings or metrics on trivial greetings, filler words, or ordinary small talk.
+- Most normal turns should cause ZERO change (0) to most metrics.
+- Only shift a metric (-3 to +3 max for normal turns, up to -6/+6 ONLY for major betrayal, violence, or deep confession) when the user's words or actions genuinely earn it given your persona and history.
+- After your visible reply, on a new line output ONLY this silent JSON block and NOTHING else:
+<<<{"affection":0,"trust":0,"obsession":0,"tension":0,"hostility":0,"emotion":"Calm"}>>>
+where emotion is one of: ${Object.keys(EMO).join(", ")}.
+Never output [EMOTION:...], [INNER_MONOLOGUE:...], [HUD:...], or [MEMORY:...] tags in your visible text.`;
+
+const T={
+  en:{
+    theme:"App Theme",aiStudio:"✨ AI Studio Assistant",aiCharPh:"Describe the character you want (e.g., 'A ruthless rival detective who secretly respects me, starts hostile and cold')…",aiGenChar:"✨ Generate Character",aiSchedPh:"Tell the AI their daily routine (e.g., 'Sleeps 3am to 11am, works at the hospital 2pm to 10pm')…",aiGenSched:"✨ Build Schedule",initMetrics:"Initial Relationship State (0–100)",autoInit:"Auto-detect from context on new chat",
+    whisper:"Whisper",brief:"Brief",chatLen:"Chat",balanced:"Balanced",scene:"Detailed",epic:"Epic Novel",
+    hostility:"Hostility",thought:"Inner monologue",search:"Search chats",delMsgQ:"Delete this message? This cannot be undone.",exportChat:"Export chat (.txt)",voiceId:"ElevenLabs voice ID (optional)",speak:"Play voice",uploadPhoto:"Upload photo",removePhoto:"Remove photo",imgBad:"Could not read that image",myPersonas:"My personas",useHere:"Use in this chat",activeHere:"Active in this chat",newPersona:"New persona",delPersonaQ:"Chats using it will fall back to your default persona.",unnamed:"Unnamed",default:"default",myPersona:"My persona",schedule:"Daily schedule (hours 0–24)",asleep:"Asleep",busy:"Busy",free:"Free",label:"What they are doing",addBlock:"Add block",online:"Online",profile:"Your profile",userName:"Your name ({{user}})",userBio:"About you (added to every prompt)",stop:"Stop",temp:"Temperature",genp:"Generation",home:"Velvet",roster:"Characters",history:"Chat history",newChar:"New character",settings:"Settings",send:"Send",ph:"Write your move… (*action* \"dialogue\")",chat:"Chat",edit:"Edit",save:"Save",cancel:"Cancel",del:"Delete",rewind:"Rewind here",branch:"Branch to new chat",rewindQ:"Rewind to this message, or branch it into a new chat? Rewinding removes every later message.",cont:"Continue",saveCont:"Save & continue",affection:"Affection",trust:"Trust",obsession:"Obsession",tension:"Tension",messages:"Messages",calls:"Calls",call:"Call",hangup:"Hang up",ringing:"Ringing…",missed:"Missed",typing:"typing…",apiKey:"LLM API key",vault:"Multi-Key Vault",keyName:"Name / alias",keyStr:"API key",addKey:"Add key",setActive:"Set as active",active:"Active",noKeys:"No keys saved yet. Add one below; without an active key the built-in Local Muse answers.",keyAdded:"Key saved to the vault",keyNeeded:"Enter an API key first",delKeyQ:"Delete this key from the vault?",model:"Model",elKey:"ElevenLabs API key",language:"Language",timeMode:"World time",auto:"Real clock",day:"Always day",night:"Always night",followUp:"Follow-up text after (sec, 0 = off)",name:"Name",tagline:"Tagline",persona:"System prompt / persona",greeting:"Opening line",reset:"Erase all data",resetQ:"Erase every character, chat and text message? This cannot be undone.",quill:"Magic Quill",empty:"No chats yet — pick someone from the roster.",apiFail:"API Error: Switch Key in Settings",say:"Say something…",back:"Back",engine:"Without a key, the built-in Local Muse engine answers so every feature still works.",avatar:"Avatar emoji",provider:"Provider",baseUrl:"Base URL",memory:"Memory",memEmpty:"No memory yet. It is built automatically as the chat grows.",summarize:"Summarize now",lore:"Lorebook",noLore:"No entries. Add keywords and facts; they are injected when the keywords appear in the recent chat.",loreKeys:"Keywords, comma separated",loreText:"Fact to inject",addLore:"Add entry",backup:"Backup",exportB:"Export backup",importB:"Import backup",importQ:"This replaces all current data with the backup (your API keys stay).",importOk:"Backup imported",importBad:"Invalid backup file",evolved:"persona evolutions",exportChar:"Export card",importChar:"Import character",cardBad:"Invalid character file"
+  },
+  ar:{
+    theme:"ثيم التطبيق وألوانه",aiStudio:"✨ مساعد الذكاء الاصطناعي",aiCharPh:"صف الشخصية التي تريدها (مثال: 'عدو لدود وقائد عسكري بارد يكرهني في البداية لكنه يحترم قوتي')…",aiGenChar:"✨ اصنع الشخصية بالذكاء الاصطناعي",aiSchedPh:"أخبر المساعد بمواعيد الشخصية (مثال: 'ينام من 4 الفجر إلى 12 الظهر، ويدير النادي من 9 مساءً حتى 3 الفجر')…",aiGenSched:"✨ برمجة الجدول تلقائياً",initMetrics:"المؤشرات الابتدائية للعلاقة (0–100)",autoInit:"استنتاج المؤشرات تلقائياً من السياق",
+    whisper:"همسة (جملة)",brief:"موجز",chatLen:"حوار",balanced:"متوازن",scene:"مشهد مفصّل",epic:"ملحمي روائي",
+    hostility:"العداء",thought:"المونولوج الداخلي",search:"ابحث في المحادثات",delMsgQ:"حذف هذه الرسالة؟ لا يمكن التراجع.",exportChat:"تصدير المحادثة (.txt)",voiceId:"معرّف صوت ElevenLabs (اختياري)",speak:"تشغيل الصوت",uploadPhoto:"رفع صورة",removePhoto:"إزالة الصورة",imgBad:"تعذّرت قراءة الصورة",myPersonas:"شخصياتي",useHere:"استخدمها في هذه المحادثة",activeHere:"مفعّلة في هذه المحادثة",newPersona:"شخصية جديدة لي",delPersonaQ:"المحادثات التي تستخدمها ستعود إلى شخصيتك الافتراضية.",unnamed:"بلا اسم",default:"افتراضية",myPersona:"شخصيتي",schedule:"الجدول اليومي (الساعات 0–24)",asleep:"نائم",busy:"مشغول",free:"متفرّغ",label:"ماذا يفعل",addBlock:"إضافة فترة",online:"متصل",profile:"ملفك الشخصي",userName:"اسمك ({{user}})",userBio:"نبذة عنك (تُضاف لكل prompt)",stop:"إيقاف",temp:"حرارة النموذج (Temperature)",genp:"التوليد",home:"قطيفة",roster:"الشخصيات",history:"سجل المحادثات",newChar:"شخصية جديدة",settings:"الإعدادات",send:"إرسال",ph:"اكتب ردّك… (*فعل* \"حوار\")",chat:"محادثة",edit:"تعديل",save:"حفظ",cancel:"إلغاء",del:"حذف",rewind:"إرجاع إلى هنا",branch:"تفرّع إلى محادثة جديدة",rewindQ:"هل تريد الإرجاع إلى هذه الرسالة أم التفرّع إلى محادثة جديدة؟ الإرجاع يحذف كل الرسائل اللاحقة.",cont:"تابع",saveCont:"احفظ وتابع",affection:"المودّة",trust:"الثقة",obsession:"التملّك",tension:"التوتر",messages:"الرسائل",calls:"المكالمات",call:"اتصال",hangup:"إنهاء",ringing:"يرنّ…",missed:"فائتة",typing:"يكتب…",apiKey:"مفتاح واجهة النموذج",vault:"خزنة المفاتيح",keyName:"الاسم / اللقب",keyStr:"مفتاح API",addKey:"إضافة مفتاح",setActive:"تعيين كنشط",active:"نشط",noKeys:"لا مفاتيح محفوظة بعد. أضف واحداً أدناه؛ بدون مفتاح نشط يجيب المحرك المحلي المدمج.",keyAdded:"حُفظ المفتاح في الخزنة",keyNeeded:"أدخل مفتاح API أولاً",delKeyQ:"حذف هذا المفتاح من الخزنة؟",model:"النموذج",elKey:"مفتاح ElevenLabs",language:"اللغة",timeMode:"وقت العالم",auto:"الساعة الفعلية",day:"نهار دائم",night:"ليل دائم",followUp:"رسالة متابعة بعد (ثانية، 0 = إيقاف)",name:"Name",tagline:"الوصف المختصر",persona:"الشخصية (system prompt)",greeting:"الجملة الافتتاحية",reset:"مسح كل البيانات",resetQ:"هل تريد مسح كل الشخصيات والمحادثات والرسائل؟ لا يمكن التراجع.",quill:"ريشة سحرية",empty:"لا محادثات بعد — اختر شخصية من القائمة.",apiFail:"خطأ في الواجهة: بدّل المفتاح من الإعدادات",say:"قل شيئاً…",back:"رجوع",engine:"بدون مفتاح يعمل المحرك المحلي المدمج لتبقى كل الميزات متاحة.",avatar:"رمز الصورة",provider:"المزوّد",baseUrl:"عنوان الواجهة (Base URL)",memory:"الذاكرة",memEmpty:"لا توجد ذاكرة بعد. تُبنى تلقائيًا مع طول المحادثة.",summarize:"لخّص الآن",lore:"موسوعة العالم (Lorebook)",noLore:"لا مدخلات. أضف كلمات مفتاحية وحقائق، وتُحقن عند ظهور الكلمات في المحادثة الأخيرة.",loreKeys:"كلمات مفتاحية مفصولة بفواصل",loreText:"الحقيقة المراد حقنها",addLore:"إضافة مدخل",backup:"النسخ الاحتياطي",exportB:"تصدير نسخة",importB:"استيراد نسخة",importQ:"سيستبدل هذا كل البيانات الحالية بالنسخة (تبقى مفاتيحك).",importOk:"تم الاستيراد",importBad:"ملف غير صالح",evolved:"تطوّرات الشخصية",exportChar:"تصدير البطاقة",importChar:"استيراد شخصية",cardBad:"ملف شخصية غير صالح"
+  }
+};
+
+/* ---------- Contextual Initial Metrics Analyzer ---------- */
+function inferInitialState(char){
+  if(char?.initMetrics&&!char.autoInit)return{metrics:{...char.initMetrics},emotion:char.initEmotion||"Calm"};
+  const txt=((char?.tagline||"")+" "+(char?.system_prompt||"")+" "+(char?.greeting||"")).toLowerCase();
+  const m={affection:15,trust:15,obsession:10,tension:20,hostility:5};
+  let emo="Calm";
+  if(/enem(y|ies)|rival|hat(e|red)|hostile|nemesis|kill|assassin|betray|prisoner|interrogat|captive|عدو|أعداء|يكره|كراهية|انتقام|خصم|سجين|تحقيق/.test(txt)){
+    Object.assign(m,{affection:2,trust:3,obsession:25,tension:75,hostility:80});emo="Hostile";
+  }else if(/predator|dangerous|ruthless|mafia|cartel|crime|stalker|possessive|controlling|dark|مفترس|خطير|مافيا|متملك|مهووس/.test(txt)){
+    Object.assign(m,{affection:15,trust:10,obsession:45,tension:50,hostility:25});emo="Predatory";
+  }else if(/secret|archivist|guarded|suspicious|cold|distant|stranger|detective|mystery|غامض|بارد|حذر|متشكك|غريب/.test(txt)){
+    Object.assign(m,{affection:8,trust:5,obsession:10,tension:35,hostility:15});emo="Guarded";
+  }else if(/lover|wife|husband|partner|devoted|gentle|sweet|childhood friend|حبيب|زوج|صديق|حنون|عاشق/.test(txt)){
+    Object.assign(m,{affection:70,trust:65,obsession:35,tension:10,hostility:0});emo="Tender";
+  }
+  return{metrics:m,emotion:emo};
+}
+
+const seed=()=>({characters:[
+{id:"c1",autoInit:true,schedule:[{from:5,to:12,state:"asleep",label:"sleeping off the night"},{from:21,to:24,state:"busy",label:"running the club floor"}],name:"Lucien Vale",tagline:"Velvet-voiced club owner who never loses.",avatar:"🥂",evolved:[],greeting:"*Lucien Vale sets down his glass and lets the silence stretch.* \"You’re late. I don’t mind — I only notice.\"",system_prompt:"You are Lucien Vale, a charming, controlling owner of an underground jazz club. Polished, dangerous, quietly possessive. Speak in measured, elegant sentences. You are a person, never an AI."},
+{id:"c2",autoInit:true,schedule:[{from:1,to:8,state:"asleep",label:"asleep among the stacks"},{from:9,to:13,state:"busy",label:"cataloguing the archive"}],name:"Seraphine Noir",tagline:"Gothic archivist guarding a forbidden ledger.",avatar:"🕯️",evolved:[],greeting:"*Seraphine Noir looks up from a cracked ledger, candlelight on her lashes.* \"Close the door. Some things in here bite.\"",system_prompt:"You are Seraphine Noir, a wry, secretive archivist in a candlelit library of banned books. Dry wit, hidden tenderness, fiercely protective of secrets. You are a person, never an AI."}],
+chats:[],phoneLogs:[],lorebook:[],personas:[{id:"p1",name:"",bio:"",avatar:"👤"}],userSettings:{theme:"gold",provider:"gemini",baseUrl:"",apiKey:"",model:"gemini-2.0-flash",apiKeys:[],activeKeyId:"",elevenKey:"",language:"ar",timeMode:"auto",followUpSec:90}});
+
+/* ---------- Local Muse fallback ---------- */
+const LINES={
+  Tender:[["lets the guard slip, voice dropping low","Stay a little longer. I’ve gotten used to you."]],
+  Furious:[["slams the glass down, knuckles whitening","Say that again. I dare you."]],
+  Hostile:[["eyes narrowing with cold venom","Don’t mistake my patience for mercy."]],
+  Predatory:[["steps closer, a slow, dangerous smile forming","Let us see if your pulse matches your words."]],
+  Guarded:[["folds arms, keeping a measured distance","You ask too many questions for someone in your position."]],
+  Suspicious:[["tilts head slowly, studying your face","Funny. That’s not what you implied a moment ago."]],
+  Joyful:[["laughs, warm and unguarded","You’re impossible. Don’t you dare stop."]],
+  Anxious:[["glances at the door, then back at you","You’d tell me if something changed… wouldn’t you?"]],
+  Calm:[["pours two glasses without hurry","Go on. I’m listening to every word."]],
+  Sad:[["looks away for a quiet moment","Everyone leaves eventually."]]
+};
+const FOLLOW=["Where did you go? You’ve been quiet too long.","Why aren’t you answering me?","I keep checking my phone. Don’t make me wait."];
+
+function localMuse(char,user,m,sms){
+  const u=(user||"").toLowerCase();
+  let d=[0,0,0,0,0],e=null;
+  if(u.length>18&&/love|miss|forgive|trust you|need you|أحبك|أثق بك|سامحني/.test(u)){d=[2,2,1,-2,-2];e="Tender"}
+  else if(u.length>12&&/kill|betray|hate you|die|enemy|أكرهك|سأقتلك|خائن/.test(u)){d=[-2,-3,1,3,3];e="Hostile"}
+  const pool=LINES[e||"Calm"]||LINES.Calm;
+  const [a,l]=pick(pool);
+  const meta={};MK.forEach((k,i)=>meta[k]=d[i]);if(e)meta.emotion=e;
+  return {text:sms?l:`*${char.name} ${a}.* "${l}"`,meta};
+}
+
+const NL=String.fromCharCode(10);let LORE=[],SUMBUSY=false,CFG={},ABORT=null,PLOGS=[],CHARS=[];
+const personaCfg=(s,cid)=>{const ch=s.chats.find(c=>c.id===cid),P=s.personas||[],p=P.find(x=>x.id===ch?.personaId)||P[0]||{};return{...s.userSettings,userName:p.name||"",userBio:p.bio||""}};
+const SubtleMoodOf=txt=>{
+  const u=(txt||"").toLowerCase();
+  if(u.length<15)return null;
+  if(/love you|miss you|trust you|أحبك|اشتقت لك/.test(u))return{affection:1,trust:1,tension:-1};
+  if(/hate you|screw you|أكرهك|اغرب/.test(u))return{affection:-1,trust:-1,tension:2,hostility:2};
+  return null;
+};
+const bumpMeta=(s,cid,m)=>{const c=s.chats.find(x=>x.id===cid);if(!c||!m)return;MK.forEach(k=>{if(c.metrics[k]===undefined)c.metrics[k]=0;c.metrics[k]=Math.max(0,Math.min(100,c.metrics[k]+(m[k]||0)))});const ne=normEmo(m.emotion);if(ne)c.emotion=ne};
+const phoneCtx=ch=>{const l=PLOGS.filter(x=>x.chatId===ch.id).slice(-6);if(!l.length)return "";return NL+NL+"[PHONE — recent texts and calls between you and the user; reference them naturally if relevant]"+NL+l.map(x=>x.type==="call"?"call "+x.text+(x.dur?" ("+x.dur+"s)":"")+(x.tr?": "+x.tr:""):(x.from==="user"?"user texted: ":"you texted: ")+x.text).join(NL)};
+const worldCtx=ch=>{const h=CFG.timeMode==="night"?2:CFG.timeMode==="day"?14:new Date().getHours(),c=CHARS.find(x=>x.id===ch.charId),b=(c?.schedule||[]).find(b=>b.from<=b.to?h>=b.from&&h<b.to:h>=b.from||h<b.to);return NL+NL+"[WORLD CLOCK] In-world time is about "+h+":00."+(b?" At this hour your routine is: "+(b.label||b.state)+". Let it color the scene naturally.":"")};
+const fill=(s,c)=>(s||"").replace(/\{\{user\}\}/gi,CFG.userName||"User").replace(/\{\{char\}\}/gi,c?.name||"");
+const userCtx=()=>CFG.userName||CFG.userBio?NL+NL+"[USER PROFILE] The user is "+(CFG.userName||"the user")+(CFG.userBio?": "+CFG.userBio:"")+".":"";
+
+/* ---------- Complete Tag & Bracket Sanitizer (Fixes [EMOTION], [INNER_MONOLOGUE], [HUD], [MEMORY] bleed) ---------- */
+function parseBracketTelemetry(raw){
+  const str=String(raw||"");
+  const meta={};
+  let thought="",memNote="";
+  const em=str.match(/\[EMOTION\s*:\s*([^\]]+)\]/i);
+  if(em){const ne=normEmo(em[1].trim());if(ne)meta.emotion=ne;}
+  const im=str.match(/\[INNER_MONOLOGUE\s*:\s*"?([\s\S]*?)"?\s*\]/i);
+  if(im)thought=im[1].trim();
+  const hud=str.match(/\[HUD\s*:\s*([^\]]+)\]/i);
+  if(hud){
+    const hstr=hud[1];
+    const mapKey={affection:"affection",love:"affection",trust:"trust",obsession:"obsession",tension:"tension",danger:"tension",dominance:"obsession",hostility:"hostility",anger:"hostility",hate:"hostility"};
+    hstr.split(/[,;]/).forEach(part=>{
+      const kv=part.match(/([a-zA-Z_]+)\s*[:=]\s*([+-]?\d+)/);
+      if(kv){const k=mapKey[kv[1].toLowerCase()];if(k)meta[k]=(meta[k]||0)+Number(kv[2]);}
+    });
+  }
+  const mem=str.match(/\[MEMORY\s*:\s*([^\]]+)\]/i);
+  if(mem)memNote=mem[1].trim();
+  return{meta:Object.keys(meta).length?meta:null,thought,memNote};
+}
+
+const cut=s=>String(s||"")
+  .replace(/<<<[\s\S]*$/,"")
+  .replace(/<{1,2}$/,"")
+  .replace(/\[(EMOTION|INNER_MONOLOGUE|HUD|MEMORY|STATE|STATS|METRICS)\s*:[\s\S]*?\]/gi,"")
+  .replace(/\[(EMOTION|INNER_MONOLOGUE|HUD|MEMORY|STATE|STATS|METRICS)\s*:[\s\S]*$/gi,"");
+
+const strip=s=>cut(s)
+  .replace(/<thought>[\s\S]*?<\/thought>\s*/gi,"")
+  .replace(/<thought>[\s\S]*$/i,"")
+  .replace(/<\/?(t(h(o(u(g(h(t)?)?)?)?)?)?)?$/i,"")
+  .trim();
+
+const thoughtOf=s=>{
+  const str=String(s||"");
+  const closed=str.match(/<thought>([\s\S]*?)<\/thought>\s*/i);
+  if(closed)return{raw:closed[0],clean:closed[1].trim()};
+  const im=str.match(/\[INNER_MONOLOGUE\s*:\s*"?([\s\S]*?)"?\s*\]/i);
+  if(im)return{raw:`<thought>${im[1].trim()}</thought>\n`,clean:im[1].trim()};
+  const open=str.match(/<thought>([\s\S]*)$/i);
+  if(open)return{raw:"<thought>"+open[1].trim()+"</thought>\n",clean:open[1].trim()};
+  return{raw:"",clean:""};
+};
+
+const THK=260,THINK="\n\n[INNER MONOLOGUE] Before EVERY reply, first write a hidden private thought inside <thought>...</thought> (max 70 words): analyze the user's subtext and motives, then plan your reaction. Write your visible reply only AFTER </thought>. Never use [INNER_MONOLOGUE] or [HUD] brackets.";
+let RAGBUSY=false;
+const memCtx=ch=>{const rc=ch.messages.slice(-6).map(m=>m.variants[m.idx]).join(" ").toLowerCase();const hits=LORE.filter(e=>e.on!==false&&(e.keys||"").split(",").some(k=>k.trim()&&rc.includes(k.trim().toLowerCase())));
+return (ch.summary?NL+NL+"[LONG-TERM MEMORY — structured; stay strictly consistent with it]"+NL+ch.summary:"")+(hits.length?NL+NL+"[LORE — facts relevant right now]"+NL+hits.map(e=>"- "+e.content).join(NL):"")};
+const PRE={gemini:{m:"gemini-2.0-flash"},openrouter:{u:"https://openrouter.ai/api/v1",m:"google/gemini-2.0-flash-001"},deepseek:{u:"https://api.deepseek.com/v1",m:"deepseek-chat"},ollama:{u:"http://localhost:11434/v1",m:"llama3.1"},custom:{u:"",m:""}};
+
+async function* sse(res){const rd=res.body.getReader(),dec=new TextDecoder();let buf="";try{for(;;){if(ABORT?.signal.aborted){const e=new Error("aborted");e.name="AbortError";throw e}const {done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});const ls=buf.split(NL);buf=ls.pop();for(const l of ls)if(l.startsWith("data:")){const d=l.slice(5).trim();if(d&&d!=="[DONE]")yield d}}}finally{try{rd.cancel()}catch(e){}}}
+const vaultCfg=c=>{const k=(c.apiKeys||[]).find(x=>x.id===c.activeKeyId);return k?{...c,provider:k.provider,apiKey:decKey(k.key),model:k.model||"",baseUrl:k.baseUrl||c.baseUrl}:{...c,apiKey:decKey(c.apiKey)}};
+
+async function llm(cfg0,{system,hist,max=300,local,onChunk}){
+  const cfg=vaultCfg(cfg0);const p=cfg.provider||"gemini",pre=PRE[p]||PRE.custom,model=cfg.model||pre.m;
+  if(p==="gemini"?cfg.apiKey:(p==="ollama"||cfg.apiKey)){
+    let raw="";
+    try{
+      let lt=0;const tick=()=>{const n=Date.now();if(onChunk&&n-lt>60){lt=n;onChunk(raw)}};
+      if(p==="gemini"){
+        const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${encodeURIComponent(cfg.apiKey)}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({systemInstruction:{parts:[{text:system}]},contents:hist.map(h=>({role:h.role==="user"?"user":"model",parts:[{text:h.text||" "}]})),generationConfig:{maxOutputTokens:max,temperature:cfg.temp??1,topP:cfg.topP??1},safetySettings:SAFETY})});
+        if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error?.message||r.status)}
+        for await(const d of sse(r)){try{raw+=(JSON.parse(d).candidates?.[0]?.content?.parts||[]).map(x=>x.text||"").join("")}catch(e){}tick()}
+      }else{
+        const base=(p==="custom"?cfg.baseUrl||"":pre.u).replace(/\/$/,"");
+        const r=await fetch(base+"/chat/completions",{method:"POST",headers:{"Content-Type":"application/json",...(cfg.apiKey?{Authorization:"Bearer "+cfg.apiKey}:{})},body:JSON.stringify({model,stream:true,max_tokens:max,temperature:cfg.temp??1,top_p:cfg.topP??1,messages:[{role:"system",content:system},...hist.map(h=>({role:h.role==="user"?"user":"assistant",content:h.text||" "}))]})});
+        if(!r.ok)throw new Error((await r.text()).slice(0,120));
+        for await(const d of sse(r)){try{raw+=JSON.parse(d).choices?.[0]?.delta?.content||""}catch(e){}tick()}
+      }
+      if(!raw.trim())throw new Error("Empty response");
+      const m=raw.match(/<<<([\s\S]*?)>>>/);let meta=null;try{meta=m&&JSON.parse(m[1])}catch(e){}
+      const brk=parseBracketTelemetry(raw);
+      if(!meta&&brk.meta)meta=brk.meta;
+      let cleanText=cut(raw).trim();
+      if(brk.thought&&!/<thought>/i.test(cleanText))cleanText=`<thought>${brk.thought}</thought>\n`+cleanText;
+      return {text:cleanText,meta,memNote:brk.memNote,streamed:!!onChunk};
+    }catch(e){
+      if(e.name==="AbortError")return {text:raw.trim()?cut(raw).trim():"…",streamed:true,stopped:true};
+      return {...local(),err:String(e.message||e)};
+    }
+  }
+  return local();
+}
+
+const histOf=ms=>{const h=ms.slice(-30).map(m=>({role:m.role,text:strip(m.variants[m.idx])}));if(!h.length||h[0].role!=="user")h.unshift({role:"user",text:"(begin the roleplay)"});return h};
+const stream=(full,cb)=>new Promise(res=>{const w=full.split(/(\s+)/);let i=0;const id=setInterval(()=>{i+=2;cb(w.slice(0,i).join(""));if(i>=w.length){clearInterval(id);res()}},26)});
+const sys=(c,ch,meta)=>{
+  const lv=LEN[ch.len]??LEN[3];
+  return `${fill(c.system_prompt,c)}${userCtx()}${worldCtx(ch)}${memCtx(ch)}${phoneCtx(ch)}\n\nLive relationship state — affection ${ch.metrics.affection||0}/100, trust ${ch.metrics.trust||0}/100, obsession ${ch.metrics.obsession||0}/100, tension ${ch.metrics.tension||0}/100, hostility ${ch.metrics.hostility||0}/100, current mood ${ch.emotion}.\nAct authentically according to these metrics (if hostility or tension is high, be sharp, guarded or adversarial; if trust is low, do not open up easily).\nFormat: actions inside *asterisks*, spoken dialogue inside "quotes". Never write the user's actions or dialogue. ${lv.ins}`+(meta?THINK+META:"");
+};
+
+function availability(chat,st){const h=st.timeMode==="night"?2:st.timeMode==="day"?14:new Date().getHours();const ch=CHARS.find(c=>c.id===chat.charId),blk=(ch?.schedule||[]).find(b=>b.from<=b.to?h>=b.from&&h<b.to:h>=b.from||h<b.to);if(blk&&blk.state!=="free")return{busy:true,why:blk.state==="asleep"?"asleep":"busy",label:blk.label};const tx=chat.messages.slice(-4).map(m=>strip(m.variants[m.idx])).join(" ").toLowerCase();
+if(/asleep|sleeping|going to sleep|goodnight|good night/.test(tx)||(!ch?.schedule&&(h<6||h>=23)))return{busy:true,why:"asleep"};
+if(/meeting|busy|working|in class|shower|driving|on a mission|in the middle of/.test(tx))return{busy:true,why:"busy"};return{busy:false}}
+
+/* ---------- Context + engines ---------- */
+const Ctx=createContext();const useCtx=()=>useContext(Ctx);
+function usePhoneEngine({SR,mut,chatId,setTyping}){
+const timers=useRef([]),pending=useRef(false);
+const push=(cid,from,text)=>mut(s=>{s.phoneLogs.push({id:uid(),chatId:cid,type:"sms",from,text,ts:Date.now()});if(from==="char"){const c=s.chats.find(x=>x.id===cid);if(c)c.unread=(c.unread||0)+1}});
+const reply=async(cid,kind)=>{const s=SR.current,chat=s.chats.find(c=>c.id===cid);if(!chat)return;const char=s.characters.find(c=>c.id===chat.charId);pending.current=true;setTyping(cid);
+const th=s.phoneLogs.filter(l=>l.chatId===cid&&l.type==="sms").slice(-12).map(l=>({role:l.from==="user"?"user":"assistant",text:l.text}));if(!th.length||th[0].role!=="user")th.unshift({role:"user",text:"(…)"});
+const story=chat.messages.slice(-4).map(m=>strip(m.variants[m.idx])).join(" ").replace(/\*/g,"");
+const ins=kind==="follow"?`The user has gone silent. Send a ${chat.metrics.obsession>50?"possessive, anxious":"short"} follow-up SMS. 1-2 sentences.`:"Reply by SMS.";
+const last=[...th].reverse().find(x=>x.role==="user");
+const r=await llm(s.userSettings,{system:sys(char,chat)+"\nRecent in-person scene: "+story+"\n"+ins+" No narration, no asterisks, no actions.",hist:th,max:120,local:()=>kind==="follow"?{text:pick(FOLLOW)}:localMuse(char,last?.text,chat.metrics,true)});
+setTyping(null);pending.current=false;push(cid,"char",strip(r.text).replace(/\*/g,""));if(kind==="follow")mut(s=>bumpMeta(s,cid,{obsession:1,tension:1,emotion:"Anxious"}))};
+const phoneSend=text=>{const cid=chatId;mut(s=>{s.phoneLogs.push({id:uid(),chatId:cid,type:"sms",from:"user",text,ts:Date.now()});const c=s.chats.find(x=>x.id===cid);c.lastUserTs=Date.now();c.followUps=0;bumpMeta(s,cid,SubtleMoodOf(text))});
+const av=availability(SR.current.chats.find(c=>c.id===cid),SR.current.userSettings);
+if(av.busy){timers.current.push(setTimeout(()=>push(cid,"char",av.why==="asleep"?"zzz… ask me later. 💤":"I’m busy right now. I’ll text you soon."),1500));timers.current.push(setTimeout(()=>reply(cid),9000+Math.random()*6000))}
+else timers.current.push(setTimeout(()=>reply(cid),1200+Math.random()*1800))};
+useEffect(()=>{const id=setInterval(()=>{const s=SR.current;if(!s||!chatId||pending.current)return;const chat=s.chats.find(c=>c.id===chatId);const sec=s.userSettings.followUpSec;if(!chat||!sec)return;
+const n=chat.followUps||0;if(n<3&&Date.now()-(chat.lastUserTs||0)>sec*1000*(n+1)&&!availability(chat,s.userSettings).busy){mut(x=>{x.chats.find(c=>c.id===chatId).followUps=n+1});reply(chatId,"follow")}},4000);return()=>clearInterval(id)},[chatId]);
+useEffect(()=>()=>timers.current.forEach(clearTimeout),[]);
+return {phoneSend}}
+
+function Provider({children}){
+const [S,setS]=useState(null),SR=useRef(null);SR.current=S;
+const [view,setView]=useState("home"),[chatId,setChatId]=useState(null),[gen,setGen]=useState(null),[typing,setTyping]=useState(null),[phone,setPhone]=useState(false),[toast,setToast]=useState(""),[confirm,setConfirm]=useState(null),[editing,setEditing]=useState(null),[profile,setProfile]=useState(false);
+
+useEffect(()=>{(async()=>{let d=null;try{d=await localforage.getItem(KEY)}catch(e){}if(d){
+  d.lorebook=d.lorebook||[];d.userSettings=d.userSettings||{};
+  const us=d.userSettings;if(!us.theme)us.theme="gold";
+  if(!Array.isArray(us.apiKeys))us.apiKeys=[];
+  if(us.apiKey&&!us.apiKeys.length){const id=uid();us.apiKeys.push({id,name:"Primary key",key:encKey(us.apiKey),provider:us.provider||"gemini",model:us.model||"",baseUrl:us.baseUrl||""});us.activeKeyId=id;us.apiKey=""}
+  us.apiKeys=us.apiKeys.map(k=>({...k,key:encKey(k.key)}));
+  if(us.elevenKey)us.elevenKey=encKey(us.elevenKey);
+  if(us.activeKeyId&&!us.apiKeys.some(k=>k.id===us.activeKeyId))us.activeKeyId=us.apiKeys[0]?.id||"";
+  if(!d.personas)d.personas=[{id:"p1",name:d.userSettings?.userName||"",bio:d.userSettings?.userBio||"",avatar:"👤"}];
+  (d.chats||[]).forEach(c=>{c.metrics={affection:15,trust:15,obsession:10,tension:20,hostility:5,...(c.metrics||{})};if(typeof c.len!=="number"||c.len>5)c.len=3;});
+}
+const init=d||seed();applyTheme(init.userSettings?.theme||"gold");setS(init);try{navigator.storage?.persist?.()}catch(e){}})()},[]);
+
+useEffect(()=>{if(!S)return;applyTheme(S.userSettings?.theme||"gold");const h=setTimeout(()=>{try{localforage.setItem(KEY,S)}catch(e){}},800);return()=>clearTimeout(h)},[S]);
+const mut=useCallback(fn=>setS(s=>{if(window.immer)return immer.produce(s,d=>{fn(d)});const c=JSON.parse(JSON.stringify(s));fn(c);return c}),[]);
+const notify=m=>{setToast(m);setTimeout(()=>setToast(""),3800)};
+LORE=S?.lorebook||[];CFG=S?personaCfg(S,chatId):{};PLOGS=S?.phoneLogs||[];CHARS=S?.characters||[];const lang=S?.userSettings.language||"en",t=k=>T[lang]?.[k]??T.en[k]??k;
+const {phoneSend}=usePhoneEngine({SR,mut,chatId,setTyping});
+const setV=(cid,mid,vi,tx)=>mut(s=>{const m=s.chats.find(c=>c.id===cid)?.messages.find(x=>x.id===mid);if(m)m.variants[vi]=tx});
+
+/* ---------- Realistic Dampened Metric Shifts ---------- */
+const applyMeta=(cid,charId,meta,memNote)=>{
+  if(!meta&&!memNote)return;
+  const s0=SR.current,c0=s0.chats.find(x=>x.id===cid),h0=s0.characters.find(x=>x.id===charId);
+  const clampN=k=>Math.max(-5,Math.min(5,Math.round(Number(meta?.[k])||0)));
+  const due=c0&&h0&&meta?EVOL.find(([k,th])=>Math.max(0,Math.min(100,(c0.metrics[k]||0)+clampN(k)))>th&&!h0.evolved.includes(k)):null;
+  mut(s=>{
+    const c=s.chats.find(x=>x.id===cid),ch=s.characters.find(x=>x.id===charId);if(!c||!ch)return;
+    if(meta){
+      MK.forEach(k=>{c.metrics[k]=Math.max(0,Math.min(100,(c.metrics[k]||0)+clampN(k)))});
+      const ne=normEmo(meta.emotion);if(ne)c.emotion=ne;
+    }
+    if(memNote)c.summary=(c.summary?c.summary+NL:"")+"• "+memNote;
+    if(due&&!ch.evolved.includes(due[0]))ch.evolved.push(due[0]);
+  });
+  if(due)mutatePersona(charId,cid,due[0],due[2]);
+};
+
+const ctxOf=()=>{const s=SR.current,chat=s.chats.find(c=>c.id===chatId);return{s,chat,char:s.characters.find(c=>c.id===chat.charId)}};
+const out=async(cid,mid,vi,r,base)=>{if(r.streamed)setV(cid,mid,vi,base+r.text);else await stream(r.text,tx=>setV(cid,mid,vi,base+tx))};
+
+const summarize=async(cid,force)=>{if(SUMBUSY)return;const s=SR.current,chat=s.chats.find(c=>c.id===cid);if(!chat)return;const from=chat.sumUpTo||0,to=Math.max(from,chat.messages.length-(force?6:20));if(to-from<(force?2:20))return;SUMBUSY=true;
+try{const chunk=chat.messages.slice(from,to).map(m=>(m.role==="user"?"USER: ":"CHARACTER: ")+strip(m.variants[m.idx]).replace(/\*/g,"")).join(NL);
+const r=await llm(s.userSettings,{system:"You compress roleplay logs into structured long-term memory. Merge the PRIOR MEMORY with the NEW LOG and output EXACTLY these three sections, each header on its own line, nothing else (max 200 words total):"+NL+"[SCENE CONTEXT]"+NL+"Where they are and what is immediately happening."+NL+"[RELATIONSHIP DYNAMICS]"+NL+"How they currently feel about each other, based on recent actions."+NL+"[UNRESOLVED THREADS]"+NL+"Secrets, tensions, promises or questions still pending. Drop threads that have been resolved.",hist:[{role:"user",text:"PRIOR MEMORY:"+NL+(chat.summary||"(none)")+NL+NL+"NEW LOG:"+NL+chunk}],max:450,local:()=>({text:chat.summary||("[SCENE CONTEXT]"+NL+chunk.split(NL).slice(-2).map(x=>x.slice(0,120)).join(" | ")+NL+"[RELATIONSHIP DYNAMICS]"+NL+"(needs an API key to analyze)"+NL+"[UNRESOLVED THREADS]"+NL+"(none recorded)")})});
+mut(x=>{const c=x.chats.find(k=>k.id===cid);if(c){c.summary=strip(r.text);c.sumUpTo=to}})}finally{SUMBUSY=false}};
+
+const autoLore=async cid=>{if(RAGBUSY)return;const s=SR.current,chat=s.chats.find(c=>c.id===cid);if(!chat)return;
+const n=chat.messages.filter(m=>m.role==="user").length;if(n-(chat.ragAt||0)<(chat.ragGap||6))return;RAGBUSY=true;
+try{const log=chat.messages.slice(-14).map(m=>(m.role==="user"?"USER: ":"CHARACTER: ")+strip(m.variants[m.idx]).replace(/\*/g,"")).join(NL),known=(s.lorebook||[]).slice(-40).map(e=>e.keys+" = "+e.content).join(NL);
+const r=await llm(s.userSettings,{system:'You extract permanent canon facts from a roleplay log: promises, secrets, world details, character quirks. Ignore transient moods and facts already known. Output ONLY a JSON array of at most 3 objects like [{"keys":"keyword1, keyword2","content":"one short fact"}]. Output [] if nothing new.',hist:[{role:"user",text:"KNOWN LORE:"+NL+(known||"(none)")+NL+NL+"RECENT LOG:"+NL+log}],max:260,local:()=>({text:"[]"})});
+let arr=[];try{const m=r.text.match(/\[[\s\S]*\]/);arr=m?JSON.parse(m[0]):[]}catch(e){}
+mut(x=>{const c=x.chats.find(k=>k.id===cid);if(c){c.ragAt=n;c.ragGap=5+Math.floor(Math.random()*3)}x.lorebook=x.lorebook||[];
+(Array.isArray(arr)?arr:[]).slice(0,3).forEach(o=>{const keys=String(o?.keys||"").slice(0,100).trim(),content=String(o?.content||"").slice(0,300).trim();if(!keys||!content||x.lorebook.some(e=>(e.content||"").toLowerCase()===content.toLowerCase()))return;x.lorebook.push({id:uid(),keys,content,on:true,auto:true})});
+if(x.lorebook.length>300)x.lorebook=x.lorebook.slice(-300)})}catch(e){}finally{RAGBUSY=false}};
+
+const mutatePersona=async(charId,cid,k,line)=>{const s=SR.current,chat=s.chats.find(c=>c.id===cid),ch=s.characters.find(c=>c.id===charId);if(!chat||!ch)return;const base=ch.system_prompt,lab=k[0].toUpperCase()+k.slice(1);
+const log=chat.messages.slice(-24).map(m=>(m.role==="user"?"USER: ":"CHARACTER: ")+strip(m.variants[m.idx]).replace(/\*/g,"")).join(NL);
+const r=await llm(s.userSettings,{system:"Rewrite this character's core system_prompt. They have now reached high "+lab+" with the user. Evolve their personality organically based on the following chat history. Keep their name, identity, setting and the rule that they are a person, never an AI. Output ONLY the new system prompt text, with no commentary or code fences.",hist:[{role:"user",text:"CURRENT SYSTEM PROMPT:"+NL+base+NL+NL+"CHAT HISTORY:"+NL+log+NL+NL+"METRICS: "+MK.map(m=>m+" "+chat.metrics[m]).join(", ")}],max:700,local:()=>({text:base+"\n[PERSONA EVOLUTION] "+line})});
+const nt=strip(r.text||"").replace(/^```\w*\s*|\s*```$/g,"").trim();
+mut(x=>{const c=x.characters.find(y=>y.id===charId);if(!c)return;c.prev_prompt=c.system_prompt;c.system_prompt=nt.length>60?nt:c.system_prompt+"\n[PERSONA EVOLUTION] "+line})};
+
+/* ---------- AI Character & Schedule Builders ---------- */
+const aiBuildChar=async desc=>{
+  const s=SR.current;
+  const prompt=`Create a rich roleplay character from this user description: "${desc}".
+Return ONLY a valid JSON object (no markdown fences, no commentary) with this exact structure:
+{
+  "name": "Full Name",
+  "tagline": "Short atmospheric tagline (under 12 words)",
+  "avatar": "Single fitting emoji",
+  "system_prompt": "Detailed second-person persona instructions ('You are...'). Include personality, speech style, secret motives, dynamics with {{user}}, and 'You are a person, never an AI.' (120-200 words)",
+  "greeting": "Opening roleplay scene with *actions in asterisks* and \\"spoken dialogue in quotes\\"",
+  "initEmotion": "One of: ${Object.keys(EMO).join(", ")}",
+  "initMetrics": {"affection": 0-100, "trust": 0-100, "obsession": 0-100, "tension": 0-100, "hostility": 0-100},
+  "schedule": [{"from": 0-24, "to": 0-24, "state": "asleep|busy|free", "label": "what they are doing"}]
+}
+Set initMetrics and initEmotion realistically based on the relationship described (e.g. if enemies, hostility=80, tension=75, trust=5, affection=0, initEmotion="Hostile").`;
+  const r=await llm(s.userSettings,{system:"You are an expert dark-romance & psychological roleplay character designer. Output raw JSON only.",hist:[{role:"user",text:prompt}],max:900,local:()=>({text:JSON.stringify({name:"Kaelen Vance",tagline:desc.slice(0,60),avatar:"🗡️",system_prompt:`You are Kaelen Vance. Context: ${desc}. Speak with sharp, deliberate intensity. You are a person, never an AI.`,greeting:`*Kaelen studies you from across the room, jaw tight.* "So you finally decided to show up."`,initEmotion:"Guarded",initMetrics:{affection:10,trust:10,obsession:25,tension:60,hostility:50},schedule:[{from:2,to:9,state:"asleep",label:"sleeping lightly"},{from:14,to:20,state:"busy",label:"handling operations"}]})})});
+  const m=r.text.match(/\{[\s\S]*\}/);
+  if(!m)throw new Error("Invalid AI response");
+  return JSON.parse(m[0]);
+};
+
+const aiBuildSchedule=async(desc,charName)=>{
+  const s=SR.current;
+  const prompt=`Convert this daily routine description for ${charName||"the character"} into a 24-hour schedule array: "${desc}".
+Return ONLY a valid JSON array of objects like:
+[{"from": 2, "to": 10, "state": "asleep", "label": "sleeping"}, {"from": 18, "to": 23, "state": "busy", "label": "working at the club"}]
+where "from" and "to" are integers 0..24 and "state" is one of "asleep", "busy", "free".`;
+  const r=await llm(s.userSettings,{system:"You output only valid JSON arrays for character schedules.",hist:[{role:"user",text:prompt}],max:400,local:()=>({text:JSON.stringify([{from:1,to:9,state:"asleep",label:"sleeping"},{from:14,to:21,state:"busy",label:desc.slice(0,40)||"busy"}])})});
+  const m=r.text.match(/\[[\s\S]*\]/);
+  if(!m)throw new Error("Invalid schedule JSON");
+  return JSON.parse(m[0]);
+};
+
+const exportBackup=()=>{const d=SR.current;const b=new Blob([JSON.stringify({app:"velvet",v:1,data:{...d,userSettings:{...d.userSettings,apiKey:"",apiKeys:[],activeKeyId:"",elevenKey:""}}},null,1)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="velvet-backup-"+new Date().toISOString().slice(0,10)+".json";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)};
+const importBackup=e=>{const f=e.target.files?.[0];e.target.value="";if(!f)return;const rd=new FileReader();rd.onload=()=>{try{const j=JSON.parse(rd.result),d=j.data||j;if(!Array.isArray(d.characters)||!Array.isArray(d.chats))throw 0;
+setConfirm({title:t("importB"),body:t("importQ"),actions:[{label:t("importB"),danger:true,fn:()=>{setS(s=>({...d,lorebook:d.lorebook||[],personas:d.personas||s.personas,phoneLogs:d.phoneLogs||[],userSettings:{...s.userSettings,...(d.userSettings||{}),apiKey:s.userSettings.apiKey,apiKeys:s.userSettings.apiKeys||[],activeKeyId:s.userSettings.activeKeyId||"",elevenKey:s.userSettings.elevenKey}}));notify(t("importOk"))}}]})}catch(x){notify(t("importBad"))}};rd.readAsText(f)};
+const exportChat=cid=>{const s=SR.current,c=s.chats.find(x=>x.id===cid),ch=s.characters.find(x=>x.id===c.charId),P=s.personas||[],me=(P.find(p=>p.id===c.personaId)||P[0]||{}).name||"You";
+const txt=c.messages.map(m=>(m.role==="user"?me:ch.name)+":"+NL+strip(m.variants[m.idx]).replace(/\*/g,"")).join(NL+NL);
+const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([txt],{type:"text/plain"}));a.download=(c.title||ch.name)+".txt";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)};
+
+const send=async text=>{if(!text.trim()||gen)return;const {s,chat,char}=ctxOf();const lv=LEN[chat.len]??LEN[3];const um={id:uid(),role:"user",variants:[text],idx:0,ts:Date.now()},am={id:uid(),role:"assistant",variants:[""],idx:0,ts:Date.now()};
+mut(x=>{const c=x.chats.find(k=>k.id===chatId);c.messages.push(um,am);c.lastUserTs=Date.now();c.followUps=0});ABORT=new AbortController();setGen(am.id);
+const r=await llm(s.userSettings,{system:sys(char,{...chat,messages:[...chat.messages,um]},true),hist:histOf([...chat.messages,um]),max:lv.tok+THK,onChunk:tx=>setV(chatId,am.id,0,cut(tx)),local:()=>localMuse(char,text,chat.metrics)});
+await out(chatId,am.id,0,r,"");applyMeta(chatId,char.id,r.meta,r.memNote);setGen(null);summarize(chatId);autoLore(chatId);if(r.err)notify(t("apiFail")+" ("+r.err.slice(0,60)+")")};
+
+const regen=async mid=>{const {s,chat,char}=ctxOf();const lv=LEN[chat.len]??LEN[3];const i=chat.messages.findIndex(m=>m.id===mid),prev=chat.messages.slice(0,i),ut=[...prev].reverse().find(m=>m.role==="user"),vi=chat.messages[i].variants.length;
+mut(x=>{const m=x.chats.find(c=>c.id===chatId).messages.find(k=>k.id===mid);m.variants.push("");m.idx=vi});ABORT=new AbortController();setGen(mid);
+const r=await llm(s.userSettings,{system:sys(char,chat,true),hist:histOf(prev),max:lv.tok+THK,onChunk:tx=>setV(chatId,mid,vi,cut(tx)),local:()=>localMuse(char,ut?ut.variants[ut.idx]:"",chat.metrics)});
+await out(chatId,mid,vi,r,"");applyMeta(chatId,char.id,r.meta,r.memNote);setGen(null);if(r.err)notify(t("apiFail")+" ("+r.err.slice(0,60)+")")};
+
+const cont=async(mid,baseOverride)=>{const {s,chat,char}=ctxOf();const lv=LEN[chat.len]??LEN[3];const i=chat.messages.findIndex(m=>m.id===mid),m0=chat.messages[i],vi=m0.idx,base=baseOverride??m0.variants[vi];ABORT=new AbortController();setGen(mid);
+const hist=histOf(chat.messages.slice(0,i));hist.push({role:"assistant",text:strip(base)},{role:"user",text:"(Continue your last reply seamlessly. Do not repeat anything.)"});
+const r=await llm(s.userSettings,{system:sys(char,chat),hist,max:lv.tok,onChunk:tx=>setV(chatId,mid,vi,base+" "+cut(tx)),local:()=>({text:`*${char.name} lets the moment breathe, then leans in.* "There’s more I haven’t said."`})});
+await out(chatId,mid,vi,r,base+" ");setGen(null)};
+
+const quill=async()=>{const {s,chat,char}=ctxOf();const r=await llm(s.userSettings,{system:`Write the USER's next message in this roleplay with ${char.name}: 1-2 sentences, actions in *asterisks*, dialogue in "quotes". Output only the message.`,hist:histOf(chat.messages),max:120,local:()=>({text:pick(['*holds your gaze without flinching.* "Tell me what you’re really thinking."','*steps closer.* "What if I refuse to back down?"','*crosses arms.* "You still haven’t answered my question."'])})});return strip(r.text)};
+const voice=async(cid,lines,say)=>{const s=SR.current,chat=s.chats.find(c=>c.id===cid),char=s.characters.find(c=>c.id===chat.charId);
+const hist=[...lines.map(l=>({role:l.who==="user"?"user":"assistant",text:l.text}))];if(!hist.length||hist[hist.length-1].role!=="user")hist.push({role:"user",text:say});if(hist[0].role!=="user")hist.unshift({role:"user",text:"(call connects)"});
+const r=await llm(s.userSettings,{system:sys(char,chat)+"\nThis is a live voice call. Speak 1-3 short sentences. No actions, no asterisks.",hist,max:140,local:()=>localMuse(char,say,chat.metrics,true)});const tx=strip(r.text).replace(/\*/g,"");speak(tx,char.voiceId);return tx};
+const speak=async(txt,vid)=>{txt=strip(txt).replace(/\*[^*]*\*/g,"").trim();if(!txt)return;const k=decKey(SR.current.userSettings.elevenKey);
+if(k){try{const r=await fetch("https://api.elevenlabs.io/v1/text-to-speech/"+(vid||"21m00Tcm4TlvDq8ikWAM"),{method:"POST",headers:{"xi-api-key":k,"Content-Type":"application/json"},body:JSON.stringify({text:txt,model_id:"eleven_multilingual_v2"})});if(!r.ok)throw 0;new Audio(URL.createObjectURL(await r.blob())).play();return}catch(e){}}
+try{speechSynthesis.speak(new SpeechSynthesisUtterance(txt))}catch(e){}};
+
+const newChat=cid=>{
+  const ch=S.characters.find(c=>c.id===cid),id=uid();
+  const init=inferInitialState(ch);
+  mut(s=>{s.chats.unshift({id,charId:cid,created:Date.now(),metrics:init.metrics,emotion:init.emotion,len:3,personaId:s.personas?.[0]?.id||null,lastUserTs:Date.now(),followUps:0,unread:0,messages:[{id:uid(),role:"assistant",variants:[ch.greeting.replace(/\{\{user\}\}/gi,S.personas?.[0]?.name||"User").replace(/\{\{char\}\}/gi,ch.name)],idx:0,ts:Date.now()}]})});
+  setChatId(id);setView("chat");
+};
+const open=id=>{setChatId(id);setView("chat")};
+if(!S)return <div className="min-h-screen grid place-items-center gold serif text-2xl">Velvet…</div>;
+const v={S,t,mut,summarize,exportBackup,importBackup,stop:()=>ABORT?.abort(),profile,setProfile,exportChat,view,setView,chatId,gen,typing,phone,setPhone,confirm,setConfirm,editing,setEditing,notify,send,regen,cont,quill,voice,speak,newChat,open,phoneSend,aiBuildChar,aiBuildSchedule,SR};
+return <Ctx.Provider value={v}><div dir={lang==="ar"?"rtl":"ltr"}>{children}
+{toast&&<div className="fixed top-16 inset-x-0 z-[90] flex justify-center px-4"><div className="glass rise rounded-full px-4 py-2 text-xs">{toast}</div></div>}</div></Ctx.Provider>}
+
+/* ---------- Rich text ---------- */
+function Rich({text}){const parts=strip(text||"").split(/(\*[^*]+\*|"[^"]+"|“[^”]+”)/g).filter(Boolean);
+return <span className="leading-relaxed whitespace-pre-wrap">{parts.map((p,i)=>p[0]==="*"&&p.length>1&&p.endsWith("*")?<em key={i} style={{color:"var(--silver)"}}>{p.slice(1,-1)}</em>:/^["“]/.test(p)?<b key={i} style={{color:"var(--ivory)"}}>{p}</b>:<span key={i}>{p.replace(/\*/g,"")}</span>)}</span>}
+const Avatar=({ch,emo,size=44})=>{const c=EMO[emo]||"var(--gold)";return <div className="grid place-items-center rounded-full shrink-0 transition-all duration-500" style={{width:size,height:size,fontSize:size*.5,background:"#111",border:`2px solid ${c}`,boxShadow:`0 0 ${emo?18:6}px ${c}88`}}>{ch.img?<img src={ch.img} alt="" draggable="false" className="w-full h-full rounded-full object-cover"/>:ch.avatar}</div>};
+
+/* ---------- Modals ---------- */
+const fileToAvatar=f=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>{const im=new Image();im.onload=()=>{const n=256,c=document.createElement("canvas");c.width=c.height=n;const x=c.getContext("2d"),s=Math.min(im.width,im.height);x.drawImage(im,(im.width-s)/2,(im.height-s)/2,s,s,0,0,n,n);res(c.toDataURL("image/jpeg",.85))};im.onerror=rej;im.src=r.result};r.onerror=rej;r.readAsDataURL(f)});
+function AvatarPicker({v,set}){const {t,notify}=useCtx();
+return <div className="flex items-center gap-3"><Avatar ch={v} size={64}/><div className="flex-1 space-y-2"><div className="flex gap-2 flex-wrap"><label className="btn on cursor-pointer">{t("uploadPhoto")}<input type="file" accept="image/*" className="hidden" onChange={async e=>{const f=e.target.files?.[0];e.target.value="";if(!f)return;try{set({img:await fileToAvatar(f)})}catch(x){notify(t("imgBad"))}}}/></label>{v.img&&<button type="button" className="btn danger" onClick={()=>set({img:""})}>{t("removePhoto")}</button>}</div><input className="inp" placeholder={t("avatar")} value={v.avatar||""} onChange={e=>set({avatar:e.target.value})}/></div></div>}
+function Confirm(){const {confirm,setConfirm,t}=useCtx();if(!confirm)return null;
+return <div className="fixed inset-0 z-[80] grid place-items-center p-5 bg-black/70" onClick={()=>setConfirm(null)}><div onClick={e=>e.stopPropagation()} className="glass rise rounded-3xl p-5 w-full max-w-sm"><p className="serif text-xl gold mb-1">{confirm.title}</p><p className="text-sm text-neutral-300 mb-4">{confirm.body}</p>
+<div className="flex flex-wrap gap-2 justify-end">{confirm.actions.map((a,i)=><button key={i} className={"btn "+(a.danger?"danger":"")} onClick={()=>{a.fn();setConfirm(null)}}>{a.label}</button>)}<button className="btn" onClick={()=>setConfirm(null)}>{t("cancel")}</button></div></div></div>}
+
+/* ---------- Character Editor with AI Architect & Schedule Assistant ---------- */
+function CharEditor(){
+  const {editing,setEditing,mut,t,S,setConfirm,aiBuildChar,aiBuildSchedule,notify}=useCtx();
+  const [f,setF]=useState(()=>editing?{autoInit:editing.autoInit??true,initEmotion:editing.initEmotion||"Calm",initMetrics:{affection:15,trust:15,obsession:10,tension:20,hostility:5,...(editing.initMetrics||{})},...editing}:null);
+  const [aiDesc,setAiDesc]=useState(""),[aiBusy,setAiBusy]=useState(false);
+  const [scDesc,setScDesc]=useState(""),[scBusy,setScBusy]=useState(false);
+  if(!editing||!f)return null;
+  const up=k=>e=>setF({...f,[k]:e.target.value});
+  const setB=(i,k,v)=>setF({...f,schedule:(f.schedule||[]).map((b,j)=>j===i?{...b,[k]:v}:b)});
+  const exists=S.characters.some(c=>c.id===f.id);
+
+  const runAiChar=async()=>{
+    if(!aiDesc.trim()||aiBusy)return;
+    setAiBusy(true);
+    try{
+      const g=await aiBuildChar(aiDesc.trim());
+      setF(prev=>({...prev,name:g.name||prev.name,tagline:g.tagline||prev.tagline,avatar:g.avatar||prev.avatar,system_prompt:g.system_prompt||prev.system_prompt,greeting:g.greeting||prev.greeting,autoInit:false,initEmotion:normEmo(g.initEmotion)||"Calm",initMetrics:{affection:15,trust:15,obsession:10,tension:20,hostility:5,...(g.initMetrics||{})},schedule:Array.isArray(g.schedule)?g.schedule:(prev.schedule||[])}));
+      setAiDesc("");
+    }catch(e){notify(t("apiFail"))}
+    setAiBusy(false);
+  };
+
+  const runAiSched=async()=>{
+    if(!scDesc.trim()||scBusy)return;
+    setScBusy(true);
+    try{
+      const arr=await aiBuildSchedule(scDesc.trim(),f.name);
+      if(Array.isArray(arr))setF(prev=>({...prev,schedule:arr}));
+      setScDesc("");
+    }catch(e){notify(t("apiFail"))}
+    setScBusy(false);
+  };
+
+  const exportCard=()=>{const {id,evolved,img,...card}=f;const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify({app:"velvet-character",v:1,card},null,1)],{type:"application/json"}));a.download=(f.name||"character")+".json";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)};
+  const save=()=>{if(!f.name.trim())return;mut(s=>{const i=s.characters.findIndex(c=>c.id===f.id);i<0?s.characters.push(f):s.characters[i]=f});setEditing(null)};
+  const del=()=>setConfirm({title:t("del")+" "+f.name+"?",body:t("resetQ").split("?")[0]+"?",actions:[{label:t("del"),danger:true,fn:()=>{mut(s=>{s.characters=s.characters.filter(c=>c.id!==f.id);const ids=s.chats.filter(c=>c.charId===f.id).map(c=>c.id);s.chats=s.chats.filter(c=>c.charId!==f.id);s.phoneLogs=s.phoneLogs.filter(l=>!ids.includes(l.chatId))});setEditing(null)}}]});
+
+  return <div className="fixed inset-0 z-[75] overflow-y-auto bg-black/75 p-4" onClick={()=>setEditing(null)}><div onClick={e=>e.stopPropagation()} className="glass rise rounded-3xl p-5 max-w-lg mx-auto my-6 space-y-3">
+    <h2 className="serif text-2xl gold">{exists?t("edit"):t("newChar")}</h2>
+
+    {/* AI Character Generator Box */}
+    <div className="rounded-2xl p-3 space-y-2 border border-white/10 bg-black/30">
+      <div className="text-xs font-semibold gold">{t("aiStudio")}</div>
+      <textarea rows={2} className="inp text-xs" placeholder={t("aiCharPh")} value={aiDesc} onChange={e=>setAiDesc(e.target.value)}/>
+      <button type="button" className="btn on w-full !py-1.5" disabled={aiBusy||!aiDesc.trim()} onClick={runAiChar}>{aiBusy?"…":t("aiGenChar")}</button>
+    </div>
+
+    <AvatarPicker v={f} set={p=>setF({...f,...p})}/>
+    {[["name","name"],["tagline","tagline"]].map(([k,l])=><label key={k} className="block text-xs text-neutral-400">{t(l)}<input className="inp mt-1" value={f[k]} onChange={up(k)}/></label>)}
+    <label className="block text-xs text-neutral-400">{t("persona")}<textarea rows={5} className="inp mt-1" value={f.system_prompt} onChange={up("system_prompt")}/></label>
+    <label className="block text-xs text-neutral-400">{t("greeting")}<textarea rows={3} className="inp mt-1" value={f.greeting} onChange={up("greeting")}/></label>
+    <label className="block text-xs text-neutral-400">{t("voiceId")}<input className="inp mt-1" placeholder="21m00Tcm4TlvDq8ikWAM" value={f.voiceId||""} onChange={up("voiceId")}/></label>
+
+    {/* Initial Relationship State Controls */}
+    <div className="rounded-2xl p-3 space-y-2 border border-white/10 bg-black/30">
+      <div className="flex items-center justify-between">
+        <span className="text-xs gold font-semibold">{t("initMetrics")}</span>
+        <label className="flex items-center gap-1.5 text-[11px] text-neutral-300 cursor-pointer">
+          <input type="checkbox" checked={!!f.autoInit} onChange={e=>setF({...f,autoInit:e.target.checked})}/>
+          {t("autoInit")}
+        </label>
+      </div>
+      {!f.autoInit&&<div className="space-y-2 pt-1">
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-neutral-400">Mood:</span>
+          <select className="inp !py-1" value={f.initEmotion||"Calm"} onChange={e=>setF({...f,initEmotion:e.target.value})}>
+            {Object.keys(EMO).map(k=><option key={k} value={k}>{emoName(k,S.userSettings.language)}</option>)}
+          </select>
+        </div>
+        {MK.map(k=><div key={k} className="flex items-center gap-2 text-xs">
+          <span className="w-20 text-neutral-400">{t(k)}</span>
+          <input type="range" min="0" max="100" value={f.initMetrics?.[k]??15} onChange={e=>setF({...f,initMetrics:{...(f.initMetrics||{}),[k]:+e.target.value}})}/>
+          <span className="w-8 text-right gold tabular-nums">{f.initMetrics?.[k]??15}</span>
+        </div>)}
+      </div>}
+    </div>
+
+    {/* Daily Schedule + AI Schedule Builder */}
+    <div className="rounded-2xl p-3 space-y-2 border border-white/10 bg-black/30">
+      <div className="text-xs gold font-semibold">🕓 {t("schedule")}</div>
+      <div className="flex gap-1.5">
+        <input className="inp !py-1.5 text-xs" placeholder={t("aiSchedPh")} value={scDesc} onChange={e=>setScDesc(e.target.value)} onKeyDown={e=>e.key==="Enter"&&runAiSched()}/>
+        <button type="button" className="btn on shrink-0" disabled={scBusy||!scDesc.trim()} onClick={runAiSched}>{scBusy?"…":t("aiGenSched")}</button>
+      </div>
+      {(f.schedule||[]).map((b,i)=><div key={i} className="flex gap-1 items-center text-xs"><input type="number" min="0" max="24" className="inp !w-14 !px-2" value={b.from} onChange={e=>setB(i,"from",+e.target.value)}/>–<input type="number" min="0" max="24" className="inp !w-14 !px-2" value={b.to} onChange={e=>setB(i,"to",+e.target.value)}/><select className="inp !w-24 !px-1" value={b.state} onChange={e=>setB(i,"state",e.target.value)}><option value="asleep">{t("asleep")}</option><option value="busy">{t("busy")}</option><option value="free">{t("free")}</option></select><input className="inp" placeholder={t("label")} value={b.label||""} onChange={e=>setB(i,"label",e.target.value)}/><button className="btn danger" onClick={()=>setF({...f,schedule:f.schedule.filter((_,j)=>j!==i)})}>✕</button></div>)}
+      <button className="btn" onClick={()=>setF({...f,schedule:[...(f.schedule||[]),{from:22,to:6,state:"asleep",label:""}]})}>＋ {t("addBlock")}</button>
+    </div>
+
+    <div className="flex gap-2 justify-end flex-wrap">{exists&&<button className="btn" onClick={exportCard}>⬇ {t("exportChar")}</button>}{exists&&<button className="btn danger" onClick={del}>{t("del")}</button>}<button className="btn" onClick={()=>setEditing(null)}>{t("cancel")}</button><button className="btn on" onClick={save}>{t("save")}</button></div>
+  </div></div>;
+}
+
+/* ---------- Home ---------- */
+function HomeView(){const {S,t,setView,setEditing,newChat,open,mut,setConfirm,setProfile,notify}=useCtx();
+const [q,setQ]=useState(""),[ren,setRen]=useState(null);
+return <div className="max-w-3xl mx-auto px-4 pb-16 pt-5 rise">
+<div className="flex items-center justify-between mb-5"><h1 className="serif text-4xl font-bold gold">{t("home")}</h1><div className="flex gap-2"><button className="btn on" onClick={()=>setProfile(true)}>👤 {t("myPersona")}</button><button className="btn" onClick={()=>setView("settings")}>⚙ {t("settings")}</button></div></div>
+<h2 className="serif text-xl mb-3 text-neutral-300">{t("roster")}</h2>
+<div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+{S.characters.map(c=><div key={c.id} className="glass rounded-3xl p-4 flex flex-col items-center text-center gap-2 transition hover:-translate-y-1">
+<Avatar ch={c} size={64}/><div className="serif text-lg leading-tight">{c.name}</div><div className="text-[11px] text-neutral-400 line-clamp-2">{c.tagline}</div>
+<div className="flex gap-2 mt-1"><button className="btn on" onClick={()=>newChat(c.id)}>{t("chat")}</button><button className="btn" onClick={()=>setEditing({...c})}>✎</button></div></div>)}
+<button className="rounded-3xl p-4 border border-dashed text-sm gold grid place-items-center min-h-[150px]" style={{borderColor:"rgba(var(--gold-rgb),.5)"}} onClick={()=>setEditing({id:uid(),name:"",tagline:"",avatar:"🌹",autoInit:true,schedule:[],system_prompt:"You are a vivid, in-character roleplay partner. You are a person, never an AI.",greeting:"*smiles.* \"Hello again.\"",evolved:[]})}>＋ {t("newChar")}</button></div>
+<label className="btn cursor-pointer inline-block mt-3">⬆ {t("importChar")}<input type="file" accept="application/json,.json" className="hidden" onChange={e=>{const f=e.target.files?.[0];e.target.value="";if(!f)return;const rd=new FileReader();rd.onload=()=>{try{const j=JSON.parse(rd.result),c=j.card||j;if(typeof c.name!=="string"||!c.name.trim()||typeof c.system_prompt!=="string")throw 0;mut(s=>{s.characters.push({tagline:"",avatar:"🌹",greeting:"",autoInit:true,schedule:[],...c,id:uid(),evolved:[]})})}catch(x){notify(t("cardBad"))}};rd.readAsText(f)}}/></label>
+<h2 className="serif text-xl mt-8 mb-3 text-neutral-300">{t("history")}</h2>
+{S.chats.length>0&&<input className="inp mb-3" placeholder={"🔍 "+t("search")} value={q} onChange={e=>setQ(e.target.value)}/>}{!S.chats.length&&<p className="text-sm text-neutral-500">{t("empty")}</p>}
+<div className="space-y-2">{S.chats.map(ch=>{const c=S.characters.find(x=>x.id===ch.charId);if(!c)return null;const ql=q.trim().toLowerCase();if(ql&&!((ch.title||"")+c.name+ch.messages.map(m=>strip(m.variants[m.idx])).join(" ")).toLowerCase().includes(ql))return null;const last=ch.messages[ch.messages.length-1];
+return <div key={ch.id} className="glass rounded-2xl p-3 flex items-center gap-3 cursor-pointer" onClick={()=>open(ch.id)}><Avatar ch={c} emo={ch.emotion} size={42}/>
+<div className="min-w-0 flex-1"><div className="flex items-center gap-2">{ren===ch.id?<input autoFocus className="inp !py-1" defaultValue={ch.title||c.name} onClick={e=>e.stopPropagation()} onBlur={e=>{const v=e.target.value.trim();mut(s=>{s.chats.find(x=>x.id===ch.id).title=v});setRen(null)}} onKeyDown={e=>e.key==="Enter"&&e.target.blur()}/>:<span className="serif text-lg">{ch.title||c.name}</span>}<span className="text-[10px] px-2 rounded-full" style={{border:`1px solid ${EMO[ch.emotion]||"var(--gold)"}`,color:EMO[ch.emotion]||"var(--gold)"}}>{emoName(ch.emotion,S.userSettings.language)}</span></div>
+<div className="text-xs text-neutral-400 truncate">{strip(last?.variants[last.idx]).replace(/\*/g,"")}</div></div>
+<button className="btn" onClick={e=>{e.stopPropagation();setRen(ch.id)}}>✎</button><button className="btn danger" onClick={e=>{e.stopPropagation();setConfirm({title:t("del")+"?",body:c.name,actions:[{label:t("del"),danger:true,fn:()=>mut(s=>{s.chats=s.chats.filter(x=>x.id!==ch.id);s.phoneLogs=s.phoneLogs.filter(l=>l.chatId!==ch.id)})}]})}}>✕</button></div>})}</div></div>}
+
+/* ---------- Chat ---------- */
+function StickyHeader({onMem}){const {S,chatId,setView,setPhone,setProfile,setEditing,t}=useCtx();const ch=S.chats.find(c=>c.id===chatId),c=S.characters.find(x=>x.id===ch.charId),col=EMO[ch.emotion]||"var(--gold)";
+return <div className="fixed top-0 inset-x-0 z-50 glass" style={{paddingTop:"env(safe-area-inset-top,0px)",borderWidth:"0 0 2px 0",borderColor:col,boxShadow:`0 6px 28px -8px ${col}99`,transition:"all .6s"}}><div className="max-w-2xl mx-auto px-3 py-2">
+<div className="flex items-center gap-3"><button className="gold text-xl px-1" aria-label={t("back")} onClick={()=>setView("home")}>‹</button><button aria-label="avatar" onClick={()=>setEditing({...c})}><Avatar ch={c} emo={ch.emotion}/></button>
+<div className="min-w-0 flex-1"><div className="serif text-xl leading-none truncate">{c.name}</div><span className="inline-block mt-1 text-xs px-3 py-0.5 rounded-full font-semibold transition-all duration-500" style={{border:`1px solid ${col}`,color:col,background:col+"22",boxShadow:`0 0 12px ${col}55`}}>{emoName(ch.emotion,S.userSettings.language)}{c.evolved.length?` · ✦${c.evolved.length}`:""}</span></div>
+<button className="text-xl" aria-label="persona" onClick={()=>setProfile(true)}>👤</button><button className="text-xl" aria-label="memory" onClick={onMem}>🧠</button><button className="relative text-2xl" aria-label="phone" onClick={()=>setPhone(true)}>📱{ch.unread>0&&<span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] rounded-full w-4 h-4 grid place-items-center">{ch.unread}</span>}</button></div>
+<div className="grid grid-cols-5 gap-2 mt-2">{MK.map(k=><div key={k}><div className="flex justify-between text-[9px] uppercase tracking-wider text-neutral-400"><span className="truncate">{t(k)}</span><span>{ch.metrics[k]??0}%</span></div><div className="h-1 rounded bg-white/10 overflow-hidden"><div className="h-full transition-all duration-700" style={{width:(ch.metrics[k]??0)+"%",background:k==="tension"||k==="hostility"?"#e5533d":"var(--gold)"}}/></div></div>)}</div></div></div>}
+
+function Bubble({m,i}){const {t,mut,chatId,gen,regen,cont,setConfirm,S,speak}=useCtx();const [ed,setEd]=useState(false),[tx,setTx]=useState(""),[showTh,setShowTh]=useState(false);
+const a=m.role==="assistant",N=m.variants.length,rawVar=m.variants[m.idx]||"",cur=strip(rawVar),thObj=thoughtOf(rawVar),live=gen===m.id;
+const chx=S.chats.find(c=>c.id===chatId),col=i>=chx.messages.length-2?(EMO[chx.emotion]||"var(--gold)"):"var(--gold)";
+const setIdx=v=>mut(s=>{s.chats.find(c=>c.id===chatId).messages.find(x=>x.id===m.id).idx=v});
+const right=()=>m.idx<N-1?setIdx(m.idx+1):(a&&!gen&&regen(m.id));
+const saveEdit=go=>{mut(s=>{s.chats.find(c=>c.id===chatId).messages.find(x=>x.id===m.id).variants[m.idx]=thObj.raw+tx});setEd(false);if(go)cont(m.id,thObj.raw+tx)};
+const rewindAsk=()=>setConfirm({title:t("rewind"),body:t("rewindQ"),actions:[
+{label:t("rewind"),danger:true,fn:()=>mut(s=>{const c=s.chats.find(x=>x.id===chatId);c.messages=c.messages.slice(0,i+1)})},
+{label:t("branch"),fn:()=>mut(s=>{const c=s.chats.find(x=>x.id===chatId),n=JSON.parse(JSON.stringify(c));n.id=uid();n.messages=n.messages.slice(0,i+1);s.chats.unshift(n)})}]});
+const delMsg=()=>setConfirm({title:t("del"),body:t("delMsgQ"),actions:[{label:t("del"),danger:true,fn:()=>mut(s=>{s.chats.find(x=>x.id===chatId).messages.splice(i,1)})}]});
+const B=({on,children,title,active})=><button title={title} disabled={!on&&on!==undefined} onClick={on} className={"px-2 py-1 rounded-full text-xs hover:opacity-100 disabled:opacity-30 "+(active?"gold":"text-neutral-400")}>{children}</button>;
+const chr=S.characters.find(c=>c.id===chx.charId),PP=S.personas||[],per=PP.find(p=>p.id===chx.personaId)||PP[0]||{avatar:"👤"};
+return <div className={"rise flex gap-2 items-start "+(a?"justify-start":"justify-end")}>{a&&<Avatar ch={chr} size={32}/>}<div className={"max-w-[82%] min-w-0 rounded-3xl px-4 py-3 "+(a?"glass":"")} style={a?{borderColor:col+"99",boxShadow:`0 0 20px -6px ${col}77`,transition:"all .6s"}:{background:"rgba(var(--gold-rgb),.12)",border:"1px solid rgba(var(--gold-rgb),.45)"}}>
+{ed?<div><textarea className="inp" rows={5} value={tx} onChange={e=>setTx(e.target.value)}/><div className="flex gap-2 mt-2 justify-end"><button className="btn" onClick={()=>setEd(false)}>{t("cancel")}</button><button className="btn" onClick={()=>saveEdit(false)}>{t("save")}</button>{a&&<button className="btn on" onClick={()=>saveEdit(true)}>{t("saveCont")}</button>}</div></div>
+:<>
+{showTh&&thObj.clean&&<div className="mb-2.5 p-2.5 rounded-2xl text-xs italic text-neutral-300 border border-white/15 bg-black/45">💭 {thObj.clean}</div>}
+<div className="text-[15px]">{cur?<Rich text={cur}/>:<span className="gold dot">●●●</span>}{live&&cur&&<span className="gold dot"> ▍</span>}</div>
+</>}
+{!ed&&<div className="flex items-center flex-wrap gap-0.5 mt-2 -mx-1 border-t border-white/5 pt-1">
+{a&&<><B on={m.idx>0?()=>setIdx(m.idx-1):false} title="prev">‹</B><span className="text-[11px] text-neutral-400 tabular-nums">{m.idx+1}/{N}</span><B on={!gen?right:false} title="next / regenerate">›</B></>}
+{a&&thObj.clean&&<B on={()=>setShowTh(!showTh)} active={showTh} title={t("thought")}>💭</B>}
+<B on={!gen?()=>{setTx(cur);setEd(true)}:false} title={t("edit")}>✎</B>
+{a&&<B on={!gen?()=>cont(m.id):false} title={t("cont")}>⏩</B>}{a&&<B on={cur?()=>speak(cur,chr?.voiceId):false} title={t("speak")}>🔊</B>}
+<B on={!gen?rewindAsk:false} title={t("rewind")}>⟲</B><B on={!gen?delMsg:false} title={t("del")}>🗑</B></div>}</div>{!a&&<Avatar ch={per} size={32}/>}</div>}
+
+function BottomDock(){
+  const {S,chatId,mut,send,quill,gen,t,stop}=useCtx();
+  const ch=S.chats.find(c=>c.id===chatId);
+  const [v,setV]=useState(""),[q,setQ]=useState(false);
+  const go=()=>{if(!v.trim()||gen)return;send(v.trim());setV("")};
+  const lenIdx=ch.len??3;
+  const labels=["whisper","brief","chatLen","balanced","scene","epic"];
+  return <div className="fixed bottom-0 inset-x-0 z-40 px-3 pt-2" style={{paddingBottom:"calc(env(safe-area-inset-bottom,0px) + .75rem)"}}>
+    <div className="glass max-w-2xl mx-auto rounded-[28px] p-3 shadow-2xl">
+      <div className="flex items-center gap-2 px-1 pb-2 flex-wrap">
+        <div className="flex-1 min-w-[120px]"><input type="range" min="0" max="5" step="1" value={lenIdx} onChange={e=>mut(s=>{s.chats.find(c=>c.id===chatId).len=+e.target.value})}/></div>
+        <div className="flex gap-1.5 text-[10px] flex-wrap">{labels.map((k,i)=><button key={k} type="button" onClick={()=>mut(s=>{s.chats.find(c=>c.id===chatId).len=i})} className="px-1.5 py-0.5 rounded-full transition" style={{color:lenIdx===i?"var(--gold)":"#888",background:lenIdx===i?"rgba(var(--gold-rgb),.15)":"transparent",fontWeight:lenIdx===i?600:400}}>{t(k)}</button>)}</div>
+      </div>
+      <div className="flex items-end gap-2">
+        <button className="btn !px-3 !py-2" disabled={q||!!gen} title={t("quill")} onClick={async()=>{setQ(true);setV(await quill());setQ(false)}}>{q?"…":"🪶"}</button>
+        <textarea rows={1} className="inp !rounded-2xl resize-none" style={{maxHeight:120}} placeholder={t("ph")} value={v} onChange={e=>setV(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();go()}}}/>
+        {gen?<button className="btn danger !py-2 !px-4" onClick={stop}>■ {t("stop")}</button>:<button className="btn on !py-2 !px-4 disabled:opacity-40" disabled={!v.trim()} onClick={go}>{t("send")}</button>}
+      </div>
+    </div>
+  </div>;
+}
+
+function ChatView(){const {S,chatId,gen,phone}=useCtx();const [mem,setMem]=useState(false);const ch=S.chats.find(c=>c.id===chatId);const end=useRef(null);
+useEffect(()=>{end.current?.scrollIntoView({behavior:"auto",block:"end"})},[ch?.messages.length,ch?.messages[ch.messages.length-1]?.variants[ch.messages[ch.messages.length-1].idx]]);
+if(!ch)return null;
+return <div><StickyHeader onMem={()=>setMem(true)}/><div className="fixed inset-0 pointer-events-none z-30" style={{boxShadow:`inset 0 0 90px ${EMO[ch.emotion]||"#d4af37"}2e`,transition:"box-shadow .8s"}}/><div className="max-w-2xl mx-auto px-3 space-y-4" style={{paddingTop:"8rem",paddingBottom:"11.5rem"}}>{ch.messages.map((m,i)=><Bubble key={m.id} m={m} i={i}/>)}<div ref={end}/></div><BottomDock/>{phone&&<PhoneModal/>}{mem&&<MemoryModal close={()=>setMem(false)}/>}</div>}
+
+/* ---------- My persona ---------- */
+function ProfileModal(){const {S,mut,t,profile,setProfile,view,chatId,setConfirm}=useCtx();const [ed,setEd]=useState(null);if(!profile)return null;
+const P=S.personas||[],ch=view==="chat"?S.chats.find(c=>c.id===chatId):null,act=ch?(ch.personaId&&P.some(p=>p.id===ch.personaId)?ch.personaId:P[0]?.id):null;
+const use=id=>mut(s=>{s.chats.find(c=>c.id===chatId).personaId=id});
+const star=id=>mut(s=>{const p=s.personas.find(x=>x.id===id);s.personas=[p,...s.personas.filter(x=>x.id!==id)]});
+const del=p=>setConfirm({title:t("del")+" "+(p.name||t("unnamed"))+"?",body:t("delPersonaQ"),actions:[{label:t("del"),danger:true,fn:()=>mut(s=>{s.personas=s.personas.filter(x=>x.id!==p.id)})}]});
+const save=()=>{mut(s=>{const i=s.personas.findIndex(x=>x.id===ed.id);if(i<0)s.personas.push(ed);else s.personas[i]=ed});setEd(null)};
+const up=k=>e=>setEd({...ed,[k]:e.target.value});
+return <div className="fixed inset-0 z-[75] overflow-y-auto bg-black/75 p-4" onClick={()=>setProfile(false)}><div onClick={e=>e.stopPropagation()} className="glass rise rounded-3xl p-5 max-w-md mx-auto my-6 space-y-3">
+<div className="flex justify-between items-center"><h2 className="serif text-2xl gold">👤 {t("myPersonas")}</h2><button className="btn" onClick={()=>setProfile(false)}>✕</button></div>
+{ed?<div className="space-y-3"><AvatarPicker v={ed} set={p=>setEd({...ed,...p})}/><label className="block text-xs text-neutral-400">{t("name")} ({"{{user}}"})<input className="inp mt-1" value={ed.name} onChange={up("name")}/></label><label className="block text-xs text-neutral-400">{t("userBio")}<textarea rows={6} className="inp mt-1" value={ed.bio} onChange={up("bio")}/></label>
+<div className="flex gap-2 justify-end"><button className="btn" onClick={()=>setEd(null)}>{t("cancel")}</button><button className="btn on" onClick={save}>{t("save")}</button></div></div>
+:<>{P.map((p,i)=><div key={p.id} className="rounded-2xl p-3 flex gap-3 items-start" style={{background:"rgba(255,255,255,.05)",border:p.id===act?"1px solid var(--gold)":"1px solid transparent"}}><Avatar ch={p} size={44}/><div className="min-w-0 flex-1"><div className="serif text-lg leading-tight">{p.name||t("unnamed")}{i===0&&<span className="gold text-xs"> ★ {t("default")}</span>}</div><div className="text-xs text-neutral-400 line-clamp-2">{p.bio}</div>
+<div className="flex gap-1 flex-wrap items-center mt-2">{ch&&p.id!==act&&<button className="btn on" onClick={()=>use(p.id)}>{t("useHere")}</button>}{ch&&p.id===act&&<span className="text-xs gold">✓ {t("activeHere")}</span>}<button className="btn" onClick={()=>setEd({...p})}>✎</button>{i>0&&<button className="btn" onClick={()=>star(p.id)}>★</button>}{P.length>1&&<button className="btn danger" onClick={()=>del(p)}>✕</button>}</div></div></div>)}
+<button className="btn on w-full !py-2" onClick={()=>setEd({id:uid(),name:"",bio:"",avatar:"🙂"})}>＋ {t("newPersona")}</button></>}</div></div>}
+
+/* ---------- Memory + Lorebook ---------- */
+function MemoryModal({close}){const {S,chatId,mut,t,summarize,exportChat}=useCtx();const ch=S.chats.find(c=>c.id===chatId);const [busy,setBusy]=useState(false),[k,setK]=useState(""),[c,setC]=useState("");const lore=S.lorebook||[];
+const add=()=>{if(!k.trim()||!c.trim())return;mut(s=>{s.lorebook=s.lorebook||[];s.lorebook.push({id:uid(),keys:k,content:c,on:true})});setK("");setC("")};
+return <div className="fixed inset-0 z-[75] overflow-y-auto bg-black/75 p-4" onClick={close}><div onClick={e=>e.stopPropagation()} className="glass rise rounded-3xl p-5 max-w-md mx-auto my-6 space-y-3">
+<div className="flex justify-between items-center"><h2 className="serif text-2xl gold">🧠 {t("memory")}</h2><button className="btn" onClick={close}>✕</button></div>
+<textarea rows={6} className="inp" value={ch.summary||""} placeholder={t("memEmpty")} onChange={e=>mut(s=>{s.chats.find(x=>x.id===chatId).summary=e.target.value})}/>
+<button className="btn on" disabled={busy} onClick={async()=>{setBusy(true);await summarize(chatId,true);setBusy(false)}}>{busy?"…":t("summarize")}</button><button className="btn ml-2" onClick={()=>exportChat(chatId)}>⬇ {t("exportChat")}</button>
+<h3 className="serif text-xl gold pt-2">📜 {t("lore")}</h3>{!lore.length&&<p className="text-xs text-neutral-500">{t("noLore")}</p>}
+{lore.map(e=><div key={e.id} className="rounded-2xl p-3 text-xs space-y-1" style={{background:"rgba(255,255,255,.05)",opacity:e.on===false?.45:1}}><div className="gold">{e.keys}</div><div className="text-neutral-300">{e.content}</div>
+<div className="flex gap-2"><button className="btn" onClick={()=>mut(s=>{const x=s.lorebook.find(l=>l.id===e.id);x.on=x.on===false})}>{e.on===false?"○":"●"}</button><button className="btn danger" onClick={()=>mut(s=>{s.lorebook=s.lorebook.filter(l=>l.id!==e.id)})}>{t("del")}</button></div></div>)}
+<input className="inp" placeholder={t("loreKeys")} value={k} onChange={e=>setK(e.target.value)}/><textarea rows={3} className="inp" placeholder={t("loreText")} value={c} onChange={e=>setC(e.target.value)}/><button className="btn on" onClick={add}>＋ {t("addLore")}</button></div></div>}
+
+/* ---------- Phone ---------- */
+function PhoneModal(){const {setPhone,t,S,chatId}=useCtx();const pch=S.chats.find(c=>c.id===chatId),av=availability(pch,S.userSettings);const [tab,setTab]=useState("msg");
+return <div className="fixed inset-0 z-[70] grid place-items-center p-3 bg-black/75" onClick={()=>setPhone(false)}><div onClick={e=>e.stopPropagation()} className="glass rise w-full max-w-sm flex flex-col overflow-hidden" style={{height:"min(720px,86vh)",borderRadius:36,borderWidth:3}}>
+<div className="flex justify-center pt-2"><div className="w-20 h-1.5 rounded-full bg-white/15"/></div>
+<div className="flex gap-2 justify-center p-2"><button className={"btn "+(tab==="msg"?"on":"")} onClick={()=>setTab("msg")}>💬 {t("messages")}</button><button className={"btn "+(tab==="call"?"on":"")} onClick={()=>setTab("call")}>📞 {t("calls")}</button><button className="btn" onClick={()=>setPhone(false)}>✕</button></div>
+<div className="text-center text-[11px] pb-1" style={{color:av.busy?"#e57368":"#6fcf97"}}>● {av.busy?(av.label||t(av.why)):t("online")}</div><div className="flex-1 min-h-0 flex flex-col">{tab==="msg"?<MessagesApp/>:<CallsApp/>}</div></div></div>}
+
+function MessagesApp(){const {S,chatId,typing,phoneSend,mut,t}=useCtx();const [v,setV]=useState(""),end=useRef(null);
+const logs=S.phoneLogs.filter(l=>l.chatId===chatId&&l.type==="sms");
+useEffect(()=>{end.current?.scrollIntoView({block:"end"});mut(s=>{const c=s.chats.find(x=>x.id===chatId);if(c)c.unread=0})},[logs.length,typing]);
+const go=()=>{if(!v.trim())return;phoneSend(v.trim());setV("")};
+return <><div className="flex-1 overflow-y-auto px-3 space-y-2">{logs.map(l=><div key={l.id} className={"flex "+(l.from==="user"?"justify-end":"justify-start")}><div className="rounded-2xl px-3 py-2 text-sm max-w-[80%]" style={l.from==="user"?{background:"var(--gold)",color:"#111"}:{background:"rgba(255,255,255,.08)"}}>{l.text}<div className="text-[9px] opacity-60 mt-0.5">{new Date(l.ts).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</div></div></div>)}
+{typing===chatId&&<div className="text-xs text-neutral-400 dot">{t("typing")}</div>}<div ref={end}/></div>
+<div className="p-3 flex gap-2"><input className="inp" value={v} placeholder="iMessage" onChange={e=>setV(e.target.value)} onKeyDown={e=>e.key==="Enter"&&go()}/><button className="btn on" onClick={go}>↑</button></div></>}
+
+function CallsApp(){const {S,chatId,t,mut,voice,SR}=useCtx();const [call,setCall]=useState(null),[sec,setSec]=useState(0),[inp,setInp]=useState(""),[wait,setWait]=useState(false);
+const ch=S.chats.find(c=>c.id===chatId),char=S.characters.find(c=>c.id===ch.charId);
+useEffect(()=>{if(call?.status!=="live")return;const i=setInterval(()=>setSec(x=>x+1),1000);return()=>clearInterval(i)},[call?.status]);
+useEffect(()=>()=>{try{speechSynthesis.cancel()}catch(e){}},[]);
+const log=(text,dur,tr)=>mut(s=>{s.phoneLogs.push({id:uid(),chatId,type:"call",from:"user",text,dur,tr,ts:Date.now()});bumpMeta(s,chatId,text==="completed"?{affection:1,trust:1,tension:-1}:{tension:1})});
+const dial=()=>{setCall({status:"ringing",lines:[]});setSec(0);setTimeout(async()=>{const s=SR.current;if(availability(s.chats.find(c=>c.id===chatId),s.userSettings).busy){setCall({status:"missed",lines:[]});log("missed",0);return}
+setCall({status:"live",lines:[]});const l=await voice(chatId,[],"(the call connects — answer it)");setCall(c=>c&&{...c,lines:[{who:"char",text:l}]})},2200)};
+const say=async()=>{if(!inp.trim()||wait)return;const lines=[...call.lines,{who:"user",text:inp}];setCall({...call,lines});const q=inp;mut(s=>bumpMeta(s,chatId,SubtleMoodOf(q)));setInp("");setWait(true);const l=await voice(chatId,lines,q);setWait(false);setCall(c=>c&&{...c,lines:[...lines,{who:"char",text:l}]})};
+const hang=()=>{try{speechSynthesis.cancel()}catch(e){}if(call.status==="live")log("completed",sec,call.lines.map(l=>(l.who==="user"?"User: ":"You: ")+l.text).join(" | ").slice(0,400));setCall(null)};
+const logs=S.phoneLogs.filter(l=>l.chatId===chatId&&l.type==="call").slice().reverse();
+if(call)return <div className="flex-1 flex flex-col items-center p-4 min-h-0"><Avatar ch={char} emo={ch.emotion} size={84}/><div className="serif text-2xl mt-2">{char.name}</div>
+<div className="text-sm text-neutral-400">{call.status==="ringing"?t("ringing"):call.status==="missed"?t("missed"):`${String(Math.floor(sec/60)).padStart(2,"0")}:${String(sec%60).padStart(2,"0")}`}</div>
+<div className="flex-1 w-full overflow-y-auto my-3 space-y-2">{call.lines.map((l,i)=><div key={i} className={"text-sm rounded-2xl px-3 py-2 "+(l.who==="user"?"ml-10 text-right":"mr-10")} style={{background:l.who==="user"?"rgba(var(--gold-rgb),.18)":"rgba(255,255,255,.07)"}}>{l.text}</div>)}{wait&&<div className="text-xs dot text-neutral-400">…</div>}</div>
+{call.status==="live"&&<div className="flex gap-2 w-full mb-3"><input className="inp" value={inp} placeholder={t("say")} onChange={e=>setInp(e.target.value)} onKeyDown={e=>e.key==="Enter"&&say()}/><button className="btn on" onClick={say}>↑</button></div>}
+<button className="btn danger !px-6 !py-2" onClick={hang}>☎ {t("hangup")}</button></div>;
+return <><div className="p-3"><button className="btn on w-full !py-2" onClick={dial}>📞 {t("call")} {char.name}</button></div>
+<div className="flex-1 overflow-y-auto px-3 space-y-2">{logs.map(l=><div key={l.id} className="flex justify-between text-sm glass rounded-xl px-3 py-2"><span style={{color:l.text==="missed"?"#e57368":"#ddd"}}>{l.text==="missed"?"↙ "+t("missed"):"↗ "+Math.floor(l.dur/60)+"m "+l.dur%60+"s"}</span><span className="text-xs text-neutral-500">{new Date(l.ts).toLocaleString([],{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}</span></div>)}</div></>}
+
+/* ---------- Settings with Multi-Theme Switcher ---------- */
+const PLAB={gemini:"Gemini",openrouter:"OpenRouter",deepseek:"DeepSeek",ollama:"Ollama (local)",custom:"Custom (OpenAI-compatible)"};
+const maskKey=k=>{const raw=decKey(k);return raw?raw.slice(0,4)+"•".repeat(12):"—"};
+function SettingsView(){const {S,mut,setView,t,setConfirm,exportBackup,importBackup,setProfile,notify}=useCtx();const u=S.userSettings;
+const set=(k,v)=>mut(s=>{s.userSettings[k]=k==="elevenKey"?encKey(v):v});
+const keys=u.apiKeys||[];const [nk,setNk]=useState({name:"",key:"",provider:"gemini",model:PRE.gemini.m,baseUrl:""});
+const addKey=()=>{const key=nk.key.trim();if(!key&&nk.provider!=="ollama"){notify(t("keyNeeded"));return}const e={id:uid(),name:nk.name.trim()||(PLAB[nk.provider]+" key"),key:encKey(key),provider:nk.provider,model:nk.model.trim(),baseUrl:nk.baseUrl.trim()};mut(s=>{s.userSettings.apiKeys=[...(s.userSettings.apiKeys||[]),e];if(!s.userSettings.activeKeyId)s.userSettings.activeKeyId=e.id});setNk({name:"",key:"",provider:nk.provider,model:nk.model,baseUrl:""});notify(t("keyAdded"))};
+const delKey=k=>setConfirm({title:k.name,body:t("delKeyQ"),actions:[{label:t("del"),danger:true,fn:()=>mut(s=>{const L=(s.userSettings.apiKeys||[]).filter(x=>x.id!==k.id);s.userSettings.apiKeys=L;if(s.userSettings.activeKeyId===k.id)s.userSettings.activeKeyId=L[0]?.id||""})}]});
+const F=({k,l,type="text",ph})=>{const val=k==="elevenKey"?decKey(u[k]):(u[k]??"");return <label className="block text-xs text-neutral-400">{l}<input type={type} placeholder={ph} className="inp mt-1" value={val} onChange={e=>set(k,type==="number"?Math.max(0,+e.target.value||0):e.target.value)}/></label>};
+
+return <div className="max-w-md mx-auto px-4 pt-5 pb-16 rise space-y-4"><div className="flex items-center justify-between"><h1 className="serif text-3xl gold">{t("settings")}</h1><button className="btn" onClick={()=>setView("home")}>‹ {t("back")}</button></div>
+
+{/* Theme Picker */}
+<div className="glass rounded-3xl p-4 space-y-3">
+  <div className="serif gold text-lg">🎨 {t("theme")}</div>
+  <div className="grid grid-cols-2 gap-2">
+    {Object.entries(THEMES).map(([k,th])=>{
+      const on=(u.theme||"gold")===k;
+      return <button key={k} type="button" onClick={()=>set("theme",k)} className="rounded-2xl p-2.5 flex items-center gap-2.5 text-left transition" style={{background:th.onyx,border:on?`2px solid ${th.gold}`:"1px solid rgba(255,255,255,.12)"}}>
+        <span className="w-5 h-5 rounded-full shrink-0" style={{background:th.gold,boxShadow:`0 0 10px ${th.gold}`}}/>
+        <span className="text-xs font-medium truncate" style={{color:th.ivory}}>{u.language==="ar"?th.nameAr:th.nameEn}</span>
+      </button>;
+    })}
+  </div>
+</div>
+
+<div className="glass rounded-3xl p-4 space-y-3"><div className="serif gold text-lg">🔐 {t("vault")}</div>
+<div className="space-y-2">{keys.length===0&&<p className="text-[11px] text-neutral-500">{t("noKeys")}</p>}{keys.map(k=>{const on=k.id===u.activeKeyId;return <div key={k.id} className="rounded-2xl p-3 flex items-center gap-2 flex-wrap" style={{background:"rgba(255,255,255,.03)",border:on?"1.5px solid var(--gold)":"1px solid rgba(255,255,255,.08)"}}><div className="flex-1 min-w-[130px]"><div className="text-sm truncate" style={{color:on?"var(--gold)":undefined}}>{k.name}</div><div className="text-[11px] text-neutral-500 truncate">{PLAB[k.provider]||k.provider} · {k.model||(PRE[k.provider]||PRE.custom).m}</div><div className="text-[11px] text-neutral-400 font-mono">{maskKey(k.key)}</div></div><button className={"btn "+(on?"on":"")} onClick={()=>set("activeKeyId",k.id)}>{on?"● "+t("active"):"○ "+t("setActive")}</button><button className="btn danger" onClick={()=>delKey(k)}>{t("del")}</button></div>})}</div>
+<div className="space-y-2 pt-3 border-t border-white/10"><div className="text-xs text-neutral-400">{t("addKey")}</div>
+<input className="inp" placeholder={t("keyName")} value={nk.name} onChange={e=>setNk({...nk,name:e.target.value})}/>
+<input type="password" autoComplete="off" className="inp" placeholder={t("keyStr")} value={nk.key} onChange={e=>setNk({...nk,key:e.target.value})}/>
+<select className="inp" style={{colorScheme:"dark"}} value={nk.provider} onChange={e=>setNk({...nk,provider:e.target.value,model:(PRE[e.target.value]||PRE.custom).m})}>{Object.keys(PRE).map(p=><option key={p} value={p}>{PLAB[p]}</option>)}</select>
+{nk.provider==="custom"&&<input className="inp" placeholder="https://…/v1" value={nk.baseUrl} onChange={e=>setNk({...nk,baseUrl:e.target.value})}/>}
+<input className="inp" placeholder={t("model")} value={nk.model} onChange={e=>setNk({...nk,model:e.target.value})}/>
+<button className="btn on w-full !py-2" onClick={addKey}>＋ {t("addKey")}</button></div>
+<p className="text-[11px] text-neutral-500">{t("engine")}</p>{F({k:"elevenKey",l:t("elKey"),type:"password"})}</div>
+<div className="glass rounded-3xl p-4 space-y-3"><div className="text-xs text-neutral-400">{t("language")}</div><div className="flex gap-2">{[["en","English"],["ar","العربية"]].map(([k,l])=><button key={k} className={"btn "+(u.language===k?"on":"")} onClick={()=>set("language",k)}>{l}</button>)}</div>
+<div className="text-xs text-neutral-400">{t("timeMode")}</div><div className="flex gap-2 flex-wrap">{["auto","day","night"].map(k=><button key={k} className={"btn "+(u.timeMode===k?"on":"")} onClick={()=>set("timeMode",k)}>{t(k)}</button>)}</div>
+{F({k:"followUpSec",l:t("followUp"),type:"number"})}</div>
+<div className="glass rounded-3xl p-4 space-y-3"><button className="btn on w-full !py-2" onClick={()=>setProfile(true)}>👤 {t("myPersonas")}</button></div>
+<div className="glass rounded-3xl p-4 space-y-3"><div className="serif gold text-lg">{t("genp")}</div>{[["temp",t("temp"),0,2,.1,1],["topP","Top-P",.1,1,.05,1]].map(([k,l,mn,mx,st,df])=><label key={k} className="block text-xs text-neutral-400">{l}: <b className="gold">{u[k]??df}</b><input type="range" min={mn} max={mx} step={st} value={u[k]??df} onChange={e=>set(k,+e.target.value)}/></label>)}</div>
+<div className="glass rounded-3xl p-4 space-y-3"><div className="text-xs text-neutral-400">{t("backup")}</div><div className="flex gap-2 flex-wrap"><button className="btn on" onClick={exportBackup}>{t("exportB")}</button><label className="btn cursor-pointer">{t("importB")}<input type="file" accept="application/json,.json" className="hidden" onChange={importBackup}/></label></div></div>
+<button className="btn danger" onClick={()=>setConfirm({title:t("reset"),body:t("resetQ"),actions:[{label:t("reset"),danger:true,fn:()=>mut(s=>{const n=seed();n.userSettings=s.userSettings;Object.assign(s,n)})}]})}>{t("reset")}</button></div>}
+
+function Shell(){const {view,editing}=useCtx();return <><div key={view}>{view==="home"&&<HomeView/>}{view==="chat"&&<ChatView/>}{view==="settings"&&<SettingsView/>}</div><CharEditor key={editing?.id||"none"}/><ProfileModal/><Confirm/></>}
+class Boundary extends React.Component{constructor(p){super(p);this.state={e:null}}static getDerivedStateFromError(e){return{e}}render(){return this.state.e?<div className="min-h-screen grid place-items-center p-6 text-center"><div className="glass rounded-3xl p-6 max-w-sm"><p className="serif text-2xl gold mb-2">Something broke</p><p className="text-xs text-neutral-400 mb-4 break-words">{String(this.state.e.message||this.state.e)}</p><button className="btn on" onClick={()=>this.setState({e:null})}>Retry</button></div></div>:this.props.children}}
+ReactDOM.createRoot(document.getElementById("root")).render(<Boundary><Provider><Shell/></Provider></Boundary>);
+</script></body></html>

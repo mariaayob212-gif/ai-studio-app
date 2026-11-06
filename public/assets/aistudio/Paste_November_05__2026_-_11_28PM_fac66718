@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="ar"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#070709">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>Velvet — Roleplay AI Studio</title>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;700&family=Inter:wght@400;500;600&family=Amiri:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:dark;--onyx:#070709;--gold:#d4af37;--gold-rgb:212,175,55;--ivory:#f6f1e3;--silver:#b9bfca;--bg1:rgba(212,175,55,.08);--bg2:rgba(120,40,70,.12);box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--onyx);color:var(--ivory);font-family:Inter,system-ui,sans-serif;background-image:radial-gradient(circle at 20% 0,var(--bg1),transparent 40%),radial-gradient(circle at 90% 100%,rgba(120,40,70,.12),transparent 45%);background-attachment:fixed;transition:background .4s,color .4s}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:60;background:var(--onyx)}
+.serif{font-family:"Cormorant Garamond","Amiri",Georgia,serif}
+.glass{background:rgba(16,16,20,.84);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(var(--gold-rgb),.22)}
+.gold{color:var(--gold)}
+.btn{border:1px solid rgba(var(--gold-rgb),.45);border-radius:999px;padding:.35rem .85rem;font-size:.8rem;transition:all .2s;color:var(--gold);display:inline-flex;align-items:center;justify-content:center;gap:.35rem}
+.btn:hover,.btn.on{background:var(--gold);color:#0b0b0d;font-weight:500}.btn.danger{border-color:#c0392b;color:#e57368}.btn.danger:hover{background:#c0392b;color:#fff}
+.inp{width:100%;background:rgba(0,0,0,.45);border:1px solid rgba(var(--gold-rgb),.25);border-radius:12px;padding:.6rem .8rem;color:var(--ivory);outline:none;font-size:.9rem}
+.inp:focus{border-color:var(--gold)}
+@keyframes rise{from{opacity:0;transform:translateY(8px) scale(.99)}to{opacity:1;transform:none}}.rise{animation:rise .28s ease both}
+@keyframes blink{50%{opacity:.2}}.dot{animation:blink 1s infinite}
+@keyframes floatSlow{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}.float-sprite{animation:floatSlow 5s ease-in-out infinite}
+input[type=range]{accent-color:var(--gold);width:100%}
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-thumb{background:rgba(var(--gold-rgb),.3);border-radius:9px}
+.corkboard{background-color:#130d0e;background-image:radial-gradient(rgba(220,38,38,.12) 1px,transparent 1px),radial-gradient(rgba(212,175,55,.06) 1px,#130d0e 1px);background-size:24px 24px;background-position:0 0,12px 12px}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/immer@10.1.1/dist/immer.umd.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.24.7/babel.min.js"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+}
+</script>
+</head><body><div id="root"></div>
+<script type="text/babel" data-presets="react">
+const {useState,useEffect,useRef,useContext,createContext,useCallback}=React;
+try{window.immer&&immer.setAutoFreeze(false)}catch(e){}
+const KEY="velvet-studio-v1",uid=()=>Math.random().toString(36).slice(2,10),pick=a=>a[Math.floor(Math.random()*a.length)];
+
+/* ---------- Key Obfuscation ---------- */
+const SALT="velvet-obf-v1";
+const encKey=s=>{if(!s||s.startsWith("obf:"))return s;try{const x=Array.from(s).map((c,i)=>String.fromCharCode(c.charCodeAt(0)^SALT.charCodeAt(i%SALT.length))).join("");return "obf:"+btoa(unescape(encodeURIComponent(x)))}catch(e){return s}};
+const decKey=s=>{if(!s||!s.startsWith("obf:"))return s||"";try{const raw=decodeURIComponent(escape(atob(s.slice(4))));return Array.from(raw).map((c,i)=>String.fromCharCode(c.charCodeAt(0)^SALT.charCodeAt(i%SALT.length))).join("")}catch(e){return ""}};
+
+/* ---------- Haptics & Web Audio Ambient Soundscape Synthesizer ---------- */
+const haptic=(ms=35)=>{try{navigator.vibrate&&navigator.vibrate(ms)}catch(e){}};
+const AMBIENT_MODES=["off","rain","hearth","jazz","library"];
+class AmbientEngine{
+  constructor(){this.ctx=null;this.mode="off";this.nodes=[];}
+  stop(){
+    this.nodes.forEach(n=>{try{n.stop?.();n.disconnect?.()}catch(e){}});
+    this.nodes=[];this.mode="off";
+  }
+  play(mode){
+    this.stop();if(!mode||mode==="off")return;
+    try{
+      const AC=window.AudioContext||window.webkitAudioContext;
+      if(!this.ctx)this.ctx=new AC();
+      if(this.ctx.state==="suspended")this.ctx.resume();
+      this.mode=mode;
+      const ctx=this.ctx,master=ctx.createGain();
+      master.gain.value=0.14;master.connect(ctx.destination);
+      this.nodes.push(master);
+
+      const bufSize=ctx.sampleRate*2,buf=ctx.createBuffer(1,bufSize,ctx.sampleRate),data=buf.getChannelData(0);
+      let lastOut=0;
+      for(let i=0;i<bufSize;i++){const w=Math.random()*2-1;data[i]=(lastOut+(0.02*w))/1.02;lastOut=data[i];data[i]*=3.2;}
+      const noise=ctx.createBufferSource();noise.buffer=buf;noise.loop=true;
+      const filter=ctx.createBiquadFilter();
+      filter.type=mode==="rain"?"bandpass":"lowpass";
+      filter.frequency.value=mode==="rain"?950:mode==="hearth"?260:420;
+      noise.connect(filter);filter.connect(master);noise.start();
+      this.nodes.push(noise,filter);
+
+      if(mode==="jazz"||mode==="library"){
+        const osc=ctx.createOscillator(),og=ctx.createGain();
+        osc.type="sine";osc.frequency.value=mode==="jazz"?110:73.42;
+        og.gain.value=0.05;osc.connect(og);og.connect(master);osc.start();
+        this.nodes.push(osc,og);
+      }
+    }catch(e){}
+  }
+}
+const AMBIENT=new AmbientEngine();
+
+/* ---------- V2 PNG Character Card Reader & Writer (tEXt 'chara' chunk + CRC32) ---------- */
+const CRC_TABLE=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xedb88320^(c>>>1):c>>>1;t[n]=c;}return t;})();
+const crc32=(bytes)=>{let c=0xffffffff;for(let i=0;i<bytes.length;i++)c=CRC_TABLE[(c^bytes[i])&0xff]^(c>>>8);return (c^0xffffffff)>>>0;};
+
+async function parsePngCharacterCard(file){
+  const buf=await file.arrayBuffer(),u8=new Uint8Array(buf),dv=new DataView(buf);
+  if(u8[0]!==0x89||u8[1]!==0x50||u8[2]!==0x4e||u8[3]!==0x47)throw new Error("Not a valid PNG");
+  let off=8;
+  while(off<u8.length){
+    const len=dv.getUint32(off);
+    const type=String.fromCharCode(u8[off+4],u8[off+5],u8[off+6],u8[off+7]);
+    if(type==="tEXt"){
+      const chunk=u8.subarray(off+8,off+8+len);
+      let nul=0;while(nul<chunk.length&&chunk[nul]!==0)nul++;
+      const kw=new TextDecoder().decode(chunk.subarray(0,nul));
+      if(kw==="chara"||kw==="ccv3"){
+        const b64=new TextDecoder().decode(chunk.subarray(nul+1));
+        const jsonStr=decodeURIComponent(escape(atob(b64.trim())));
+        const raw=JSON.parse(jsonStr);
+        const d=raw.data||raw;
+        const imgUrl=await fileToAvatar(file);
+        return{
+          name:d.name||"Unnamed",
+          tagline:d.creator_notes||d.personality?.slice(0,80)||"Imported V2 Character Card",
+          avatar:"🎭",
+          img:imgUrl,
+          system_prompt:[d.description,d.personality,d.scenario?`Scenario: ${d.scenario}`:"",d.system_prompt,d.mes_example?`Dialogue Examples:\n${d.mes_example}`:"","You are a person, never an AI."].filter(Boolean).join("\n\n"),
+          greeting:d.first_mes||`*${d.name||"They"} looks at you intently.* "Hello."`
+        };
+      }
+    }
+    if(type==="IEND")break;
+    off+=12+len;
+  }
+  throw new Error("No V2 character metadata found in PNG");
+}
+
+async function exportPngCharacterCard(char){
+  const canvas=document.createElement("canvas");canvas.width=canvas.height=512;
+  const ctx=canvas.getContext("2d");
+  const grad=ctx.createLinearGradient(0,0,512,512);
+  grad.addColorStop(0,"#09080d");grad.addColorStop(1,"#241522");
+  ctx.fillStyle=grad;ctx.fillRect(0,0,512,512);
+  if(char.img){
+    await new Promise(res=>{const im=new Image();im.onload=()=>{ctx.drawImage(im,0,0,512,512);res()};im.onerror=res;im.src=char.img;});
+  }else{
+    ctx.font="180px serif";ctx.textAlign="center";ctx.textBaseline="middle";
+    ctx.fillText(char.avatar||"🌹",256,220);
+  }
+  ctx.fillStyle="rgba(0,0,0,0.65)";ctx.fillRect(0,410,512,102);
+  ctx.strokeStyle="#d4af37";ctx.lineWidth=4;ctx.strokeRect(8,8,496,496);
+  ctx.fillStyle="#d4af37";ctx.font="bold 30px Georgia, serif";ctx.textAlign="center";
+  ctx.fillText(char.name||"Character",256,450);
+  ctx.fillStyle="#e2dcd0";ctx.font="16px sans-serif";
+  ctx.fillText((char.tagline||"Velvet Studio V2 Card").slice(0,48),256,482);
+
+  const blob=await new Promise(r=>canvas.toBlob(r,"image/png"));
+  const u8=new Uint8Array(await blob.arrayBuffer());
+  const v2Payload={
+    spec:"chara_card_v2",spec_version:"2.0",
+    data:{
+      name:char.name,description:char.system_prompt,personality:char.tagline||"",
+      scenario:"",first_mes:char.greeting||"",mes_example:"",
+      creator_notes:char.tagline||"",system_prompt:char.system_prompt||"",
+      extensions:{velvet:{schedule:char.schedule||[],initMetrics:char.initMetrics,initEmotion:char.initEmotion,ambient:char.ambient}}
+    }
+  };
+  const b64=btoa(unescape(encodeURIComponent(JSON.stringify(v2Payload))));
+  const kwBytes=new TextEncoder().encode("chara\0"+b64);
+  const chunk=new Uint8Array(12+kwBytes.length);
+  const dv=new DataView(chunk.buffer);
+  dv.setUint32(0,kwBytes.length);
+  chunk.set([0x74,0x45,0x58,0x74],4); // tEXt
+  chunk.set(kwBytes,8);
+  dv.setUint32(8+kwBytes.length,crc32(chunk.subarray(4,8+kwBytes.length)));
+
+  const iendPos=u8.length-12;
+  const out=new Uint8Array(u8.length+chunk.length);
+  out.set(u8.subarray(0,iendPos),0);
+  out.set(chunk,iendPos);
+  out.set(u8.subarray(iendPos),iendPos+chunk.length);
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([out],{type:"image/png"}));
+  a.download=(char.name||"character").replace(/\s+/g,"-")+".card.png";
+  a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+
+/* ---------- Themes ---------- */
+const THEMES={
+  gold:{nameEn:"Onyx Gold",nameAr:"الذهب الملكي",onyx:"#070709",gold:"#d4af37",rgb:"212,175,55",ivory:"#f6f1e3",bg1:"rgba(212,175,55,.08)",bg2:"rgba(120,40,70,.12)"},
+  crimson:{nameEn:"Velvet Crimson",nameAr:"القرمزي المخملي",onyx:"#090506",gold:"#e63956",rgb:"230,57,86",ivory:"#f9ecee",bg1:"rgba(230,57,86,.10)",bg2:"rgba(90,15,30,.16)"},
+  amethyst:{nameEn:"Nocturne Amethyst",nameAr:"البنفسجي الليلي",onyx:"#07060c",gold:"#b388ff",rgb:"179,136,255",ivory:"#f0ecfa",bg1:"rgba(179,136,255,.09)",bg2:"rgba(60,30,110,.15)"},
+  emerald:{nameEn:"Forbidden Emerald",nameAr:"الزمرد الغامض",onyx:"#050908",gold:"#2ec4b6",rgb:"46,196,182",ivory:"#eaf7f5",bg1:"rgba(46,196,182,.08)",bg2:"rgba(20,80,70,.14)"},
+  frost:{nameEn:"Arctic Silver",nameAr:"الجليد الفضي",onyx:"#06080c",gold:"#7cc6fe",rgb:"124,198,254",ivory:"#eef5fc",bg1:"rgba(124,198,254,.08)",bg2:"rgba(30,60,100,.14)"},
+  rose:{nameEn:"Dusty Rose",nameAr:"الوردي الدافئ",onyx:"#090608",gold:"#f4a2b8",rgb:"244,162,184",ivory:"#fbf0f3",bg1:"rgba(244,162,184,.08)",bg2:"rgba(110,45,70,.14)"}
+};
+const applyTheme=tk=>{
+  const th=THEMES[tk]||THEMES.gold,r=document.documentElement.style;
+  r.setProperty("--onyx",th.onyx);r.setProperty("--gold",th.gold);r.setProperty("--gold-rgb",th.rgb);
+  r.setProperty("--ivory",th.ivory);r.setProperty("--bg1",th.bg1);r.setProperty("--bg2",th.bg2);
+};
+
+/* ---------- Default Custom Prompt Presets ---------- */
+const DEFAULT_PROMPTS=[
+  {id:"cp1",name:"Dark 00 (Noir & Psychological)",text:"Write with slow-burn psychological tension, visceral sensory details, and sharp subtext. Show emotions through micro-expressions, posture, and tone rather than stating them outright. Never rush conflict resolution or soften a character's rough edges."},
+  {id:"cp2",name:"Cinematic Novel",text:"Focus on atmospheric world-building, dynamic body language, and natural, character-driven dialogue. Keep pacing grounded and immersive."},
+  {id:"cp3",name:"Raw & Unfiltered",text:"Stay strictly true to the character's morality, flaws, and motives without moralizing or breaking character. Let dialogue feel sharp, spontaneous, and human."}
+];
+
+/* ---------- Unlockable "Open When" Letter Definitions ---------- */
+const LETTER_MILESTONES=[
+  {id:"m_trust",metric:"trust",threshold:75,titleEn:"Open When You Doubt Me",titleAr:"افتحها عندما تشكّ بي",prompt:"Write a deeply personal, secret letter from you to {{user}} titled 'Open When You Doubt Me'. Confess a secret truth or vulnerability you've never spoken aloud in the chat, referencing your shared history."},
+  {id:"m_affection",metric:"affection",threshold:80,titleEn:"Open When You Feel Alone",titleAr:"افتحها عندما تشعر بالوحدة",prompt:"Write an intimate, tender handwritten letter to {{user}} titled 'Open When You Feel Alone'. Express what {{user}} truly means to you beneath your usual demeanor, referencing moments from your history."},
+  {id:"m_obsession",metric:"obsession",threshold:80,titleEn:"Open If You Ever Try To Leave",titleAr:"افتحها إن فكرت يوماً بالرحيل",prompt:"Write a dark, possessive, emotionally intense letter to {{user}} titled 'Open If You Ever Try To Leave'. Reveal how deeply you watch and claim {{user}}, referencing your shared scenes."},
+  {id:"m_tension",metric:"tension",threshold:80,titleEn:"Open After Our Worst Fight",titleAr:"افتحها بعد أسوأ شجار بيننا",prompt:"Write a raw, conflicted letter written at 3 AM to {{user}} titled 'Open After Our Worst Fight'. Let your pride clash with your unspoken feelings."},
+  {id:"m_hostility",metric:"hostility",threshold:80,titleEn:"Open When The Dust Settles",titleAr:"افتحها عندما تهدأ العاصفة",prompt:"Write a sharp, begrudgingly respectful letter to your rival/enemy {{user}} titled 'Open When The Dust Settles'. Acknowledge their strength even amidst your hostility."}
+];
+
+/* ---------- 17 Emotions & 5 Metrics ---------- */
+const EMO={
+  Calm:"#d4af37",Tender:"#ff7aa8",Joyful:"#ffd166",Amused:"#f9a826",
+  Playful:"#ff9f68",Intrigued:"#4cc9f0",Guarded:"#8d99ae",Suspicious:"#3fc1c9",
+  Anxious:"#b48cff",Jealous:"#9b5de5",Predatory:"#e63946",Cold:"#70a1ff",
+  Contemptuous:"#a855f7",Hostile:"#ff595e",Furious:"#ff2a2a",Sad:"#5c95ff",Obsessed:"#f72585"
+};
+const EMO_AR={
+  Calm:"هادئ",Tender:"حنون",Joyful:"مبتهج",Amused:"متسلٍّ",
+  Playful:"مراوغ",Intrigued:"مهتم بفضول",Guarded:"متحفّظ",Suspicious:"متشكك",
+  Anxious:"قلق",Jealous:"غيور",Predatory:"مفترس",Cold:"بارد",
+  Contemptuous:"محتقر",Hostile:"عدائي",Furious:"غاضب",Sad:"حزين",Obsessed:"مهووس"
+};
+const MK=["affection","trust","obsession","tension","hostility"];
+const emoName=(e,l)=>{
+  const key=Object.keys(EMO).find(k=>k.toLowerCase()===String(e||"").toLowerCase())||"Calm";
+  return l==="ar"?(EMO_AR[key]||key):key;
+};
+const normEmo=e=>Object.keys(EMO).find(k=>k.toLowerCase()===String(e||"").toLowerCase())||null;
+
+const SAFETY=["HARM_CATEGORY_HARASSMENT","HARM_CATEGORY_HATE_SPEECH","HARM_CATEGORY_SEXUALLY_EXPLICIT","HARM_CATEGORY_DANGEROUS_CONTENT"].map(category=>({category,threshold:"BLOCK_NONE"}));
+
+/* ---------- 6 Granular Length Levels ---------- */
+const LEN=[
+  {key:"whisper",tok:75,ins:"Reply in 1-2 crisp sentences only (under 35 words). Be brief and impactful."},
+  {key:"brief",tok:150,ins:"Reply in 1 short paragraph (40-80 words)."},
+  {key:"chat",tok:260,ins:"Reply in 2 concise paragraphs (90-160 words)."},
+  {key:"balanced",tok:420,ins:"Reply in 2-3 well-paced paragraphs (170-260 words)."},
+  {key:"scene",tok:680,ins:"Reply with detailed atmospheric description and dialogue in 4-5 paragraphs."},
+  {key:"epic",tok:1050,ins:"Reply with rich, immersive novel-style prose, 6+ paragraphs with deep sensory detail."}
+];
+
+const EVOL=[
+  ["trust",80,"Trust has fully formed: you now confide in the user, drop your guard and speak with unguarded warmth."],
+  ["obsession",80,"Obsession has taken root: you are possessive, hate being ignored and fixate on the user's every move."],
+  ["affection",85,"You are deeply in love; tenderness colors everything you say."],
+  ["tension",85,"Unresolved tension has hardened you: you are volatile, quick to anger and guarded."],
+  ["hostility",85,"Bitter hostility dominates: you view the user as an enemy, speaking with biting venom and distrust."]
+];
+
+const META=`\n\n[SILENT SYSTEM TASK — REALISTIC HUMAN PSYCHOLOGY]
+You are a grounded human character with emotional inertia. Do NOT shift your feelings or metrics on trivial greetings, filler words, or ordinary small talk.
+- Most normal turns should cause ZERO change (0) to most metrics.
+- Only shift a metric (-3 to +3 max for normal turns, up to -6/+6 ONLY for major betrayal, violence, or deep confession) when the user's words or actions genuinely earn it given your persona and history.
+- After your visible reply, on a new line output ONLY this silent JSON block and NOTHING else:
+<<<{"affection":0,"trust":0,"obsession":0,"tension":0,"hostility":0,"emotion":"Calm"}>>>
+where emotion is one of: ${Object.keys(EMO).join(", ")}.
+Never output [EMOTION:...], [INNER_MONOLOGUE:...], [HUD:...], or [MEMORY:...] tags in your visible text.`;
+
+const T={
+  en:{
+    vnMode:"Visual Novel Mode",chatMode:"Classic Chat Mode",dualHud:"Pop-out Dual-Screen HUD",redBoard:"Red String Investigation Board",letters:"Sealed 'Open When' Letters",lockedLetter:"Locked — Reach",toUnlock:"to unlock & generate",openLetter:"Unseal & Read",ambient:"Ambient Audio",amb_off:"Off",amb_rain:"Night Rain",amb_hearth:"Crackling Hearth",amb_jazz:"Noir Jazz Club",amb_library:"Quiet Archive",ctxWindow:"Context Window (Messages sent)",exportPng:"Export V2 PNG Card",importPng:"Import JSON / V2 PNG Card",
+    instructions:"Instructions & Custom Prompts",customPrompt:"Custom Prompt",noCustomPrompt:"Off (Character prompt only)",newPrompt:"New Preset",promptName:"Preset name",promptBody:"Instructions injected into every reply…",prefill:"Prefill (Put words in model's mouth)",prefillDesc:"Forces the reply to start with your custom text or formatting.",prefillText:"e.g. *He watches you closely.* \"",forbiddenWords:"Forbidden Words",forbiddenPh:"Add word or phrase (up to 10)…",orBalance:"OpenRouter Credits",checkBal:"Refresh Balance",remaining:"Remaining",used:"Used",unlimited:"Unlimited",regenBtn:"Regenerate",copyMsg:"Copy text",copied:"Copied to clipboard",editChar:"Edit character",toggleHud:"Toggle relationship bars",
+    theme:"App Theme",aiStudio:"✨ AI Studio Assistant",aiCharPh:"Describe the character you want (e.g., 'A ruthless rival detective who secretly respects me, starts hostile and cold')…",aiGenChar:"✨ Generate Character",aiSchedPh:"Tell the AI their daily routine (e.g., 'Sleeps 3am to 11am, works at the hospital 2pm to 10pm')…",aiGenSched:"✨ Build Schedule",initMetrics:"Initial Relationship State (0–100)",autoInit:"Auto-detect from context on new chat",
+    whisper:"Whisper",brief:"Brief",chatLen:"Chat",balanced:"Balanced",scene:"Detailed",epic:"Epic Novel",
+    hostility:"Hostility",thought:"Inner monologue",search:"Search chats",delMsgQ:"Delete this message? This cannot be undone.",exportChat:"Export chat (.txt)",voiceId:"ElevenLabs voice ID (optional)",speak:"Play voice",uploadPhoto:"Upload photo",removePhoto:"Remove photo",imgBad:"Could not read that image",myPersonas:"My personas",useHere:"Use in this chat",activeHere:"Active in this chat",newPersona:"New persona",delPersonaQ:"Chats using it will fall back to your default persona.",unnamed:"Unnamed",default:"default",myPersona:"My persona",schedule:"Daily schedule (hours 0–24)",asleep:"Asleep",busy:"Busy",free:"Free",label:"What they are doing",addBlock:"Add block",online:"Online",profile:"Your profile",userName:"Your name ({{user}})",userBio:"About you (added to every prompt)",stop:"Stop",temp:"Temperature",genp:"Generation & Context Controls",home:"Velvet",roster:"Characters",history:"Chat history",newChar:"New character",settings:"Settings",send:"Send",ph:"Write your move… (*action* \"dialogue\")",chat:"Chat",edit:"Edit",save:"Save",cancel:"Cancel",del:"Delete",rewind:"Rewind here",branch:"Branch to new chat",rewindQ:"Rewind to this message, or branch it into a new chat? Rewinding removes every later message.",cont:"Continue reply",saveCont:"Save & continue",affection:"Affection",trust:"Trust",obsession:"Obsession",tension:"Tension",messages:"Messages",calls:"Calls",call:"Call",hangup:"Hang up",ringing:"Ringing…",missed:"Missed",typing:"typing…",apiKey:"LLM API key",vault:"Multi-Key Vault",keyName:"Name / alias",keyStr:"API key",addKey:"Add key",setActive:"Set as active",active:"Active",noKeys:"No keys saved yet. Add one below; without an active key the built-in Local Muse answers.",keyAdded:"Key saved to the vault",keyNeeded:"Enter an API key first",delKeyQ:"Delete this key from the vault?",model:"Model",elKey:"ElevenLabs API key",language:"Language",timeMode:"World time",auto:"Real clock",day:"Always day",night:"Always night",followUp:"Follow-up text after (sec, 0 = off)",name:"Name",tagline:"Tagline",persona:"System prompt / persona",greeting:"Opening line",reset:"Erase all data",resetQ:"Erase every character, chat and text message? This cannot be undone.",quill:"Magic Quill",empty:"No chats yet — pick someone from the roster.",apiFail:"API Error: Switched to fallback",say:"Say something…",back:"Back",engine:"Without a key, the built-in Local Muse engine answers so every feature still works.",avatar:"Avatar emoji",provider:"Provider",baseUrl:"Base URL",memory:"Memory & Red String Board",memEmpty:"No memory yet. It is built automatically as the chat grows.",summarize:"Summarize now",lore:"Lorebook (Auto-RAG)",noLore:"No entries. Add keywords and facts; they are injected when the keywords appear in the recent chat.",loreKeys:"Keywords, comma separated",loreText:"Fact to inject",addLore:"Add entry",backup:"Backup",exportB:"Export backup",importB:"Import backup",importQ:"This replaces all current data with the backup (your API keys stay).",importOk:"Backup imported",importBad:"Invalid backup file",evolved:"persona evolutions",exportChar:"Export JSON",importChar:"Import Character (PNG / JSON)",cardBad:"Invalid character file"
+  },
+  ar:{
+    vnMode:"نمط الرواية المرئية (Visual Novel)",chatMode:"نمط المحادثة الكلاسيكي",dualHud:"فصل شاشة المؤشرات (Dual-Screen HUD)",redBoard:"لوحة التحقيقات والخيوط الحمراء",letters:"الرسائل المغلقة (Open When)",lockedLetter:"مغلقة — أوصل",toUnlock:"لفتح الظرف وتوليد الرسالة",openLetter:"فضّ الختم وقراءة الرسالة",ambient:"الصوت المحيطي",amb_off:"إيقاف",amb_rain:"مطر ليلي",amb_hearth:"موقد نار دافئ",amb_jazz:"نادي جاز ليلي",amb_library:"مكتبة قديمة هادئة",ctxWindow:"حجم الذاكرة المرسلة (Context Window)",exportPng:"تصدير بطاقة صورة (V2 PNG)",importPng:"استيراد شخصية (صورة PNG أو JSON)",
+    instructions:"التعليمات وقوالب التوجيه (Instructions)",customPrompt:"التوجيه المخصص (Custom Prompt)",noCustomPrompt:"إيقاف (اعتماد توجيه الشخصية فقط)",newPrompt:"قالب جديد",promptName:"اسم القالب (مثال: Dark 00)",promptBody:"التعليمات التي تُحقن في كل رد…",prefill:"تلقين البداية (Prefill)",prefillDesc:"يضع كلمات في فم النموذج لبدء الرد بأسلوبك.",prefillText:"مثال: *ينظر إليك بتركيز.* \"",forbiddenWords:"الكلمات الممنوعة (Forbidden Words)",forbiddenPh:"أضف كلمة أو عبارة ممنوعة (بحد أقصى 10)…",orBalance:"رصيد OpenRouter",checkBal:"تحديث الرصيد",remaining:"المتبقي",used:"المستهلك",unlimited:"غير محدود",regenBtn:"إعادة توليد الرد",copyMsg:"نسخ النص",copied:"تم نسخ النص",editChar:"تعديل الشخصية",toggleHud:"إظهار/إخفاء أشرطة المشاعر",
+    theme:"ثيم التطبيق وألوانه",aiStudio:"✨ مساعد الذكاء الاصطناعي",aiCharPh:"صف الشخصية التي تريدها (مثال: 'عدو لدود وقائد عسكري بارد يكرهني في البداية لكنه يحترم قوتي')…",aiGenChar:"✨ اصنع الشخصية بالذكاء الاصطناعي",aiSchedPh:"أخبر المساعد بمواعيد الشخصية (مثال: 'ينام من 4 الفجر إلى 12 الظهر، ويدير النادي من 9 مساءً حتى 3 الفجر')…",aiGenSched:"✨ برمجة الجدول تلقائياً",initMetrics:"المؤشرات الابتدائية للعلاقة (0–100)",autoInit:"استنتاج المؤشرات تلقائياً من السياق",
+    whisper:"همسة",brief:"موجز",chatLen:"حوار",balanced:"متوازن",scene:"مشهد مفصّل",epic:"ملحمي",
+    hostility:"العداء",thought:"المونولوج الداخلي",search:"ابحث في المحادثات",delMsgQ:"حذف هذه الرسالة؟ لا يمكن التراجع.",exportChat:"تصدير المحادثة (.txt)",voiceId:"معرّف صوت ElevenLabs (اختياري)",speak:"تشغيل الصوت",uploadPhoto:"رفع صورة",removePhoto:"إزالة الصورة",imgBad:"تعذّرت قراءة الصورة",myPersonas:"شخصياتي",useHere:"استخدمها في هذه المحادثة",activeHere:"مفعّلة في هذه المحادثة",newPersona:"شخصية جديدة لي",delPersonaQ:"المحادثات التي تستخدمها ستعود إلى شخصيتك الافتراضية.",unnamed:"بلا اسم",default:"افتراضية",myPersona:"شخصيتي",schedule:"الجدول اليومي (الساعات 0–24)",asleep:"نائم",busy:"مشغول",free:"متفرّغ",label:"ماذا يفعل",addBlock:"إضافة فترة",online:"متصل",profile:"ملفك الشخصي",userName:"اسمك ({{user}})",userBio:"نبذة عنك (تُضاف لكل prompt)",stop:"إيقاف",temp:"حرارة النموذج (Temperature)",genp:"إعدادات التوليد والذاكرة (Context)",home:"قطيفة",roster:"الشخصيات",history:"سجل المحادثات",newChar:"شخصية جديدة",settings:"الإعدادات",send:"إرسال",ph:"اكتب ردّك… (*فعل* \"حوار\")",chat:"محادثة",edit:"تعديل الرسالة",save:"حفظ",cancel:"إلغاء",del:"حذف",rewind:"إرجاع أو تفرّع من هنا",branch:"تفرّع إلى محادثة جديدة",rewindQ:"هل تريد الإرجاع إلى هذه الرسالة أم التفرّع إلى محادثة جديدة؟ الإرجاع يحذف كل الرسائل اللاحقة.",cont:"إكمال الرد",saveCont:"احفظ وتابع",affection:"المودّة",trust:"الثقة",obsession:"التملّك",tension:"التوتر",messages:"الرسائل",calls:"المكالمات",call:"اتصال",hangup:"إنهاء",ringing:"يرنّ…",missed:"فائتة",typing:"يكتب…",apiKey:"مفتاح واجهة النموذج",vault:"خزنة المفاتيح",keyName:"الاسم / اللقب",keyStr:"مفتاح API",addKey:"إضافة مفتاح",setActive:"تعيين كنشط",active:"نشط",noKeys:"لا مفاتيح محفوظة بعد. أضف واحداً أدناه؛ بدون مفتاح نشط يجيب المحرك المحلي المدمج.",keyAdded:"حُفظ المفتاح في الخزنة",keyNeeded:"أدخل مفتاح API أولاً",delKeyQ:"حذف هذا المفتاح من الخزنة؟",model:"النموذج",elKey:"مفتاح ElevenLabs",language:"اللغة",timeMode:"وقت العالم",auto:"الساعة الفعلية",day:"نهار دائم",night:"ليل دائم",followUp:"رسالة متابعة بعد (ثانية، 0 = إيقاف)",name:"الاسم",tagline:"الوصف المختصر",persona:"الشخصية (system prompt)",greeting:"الجملة الافتتاحية",reset:"مسح كل البيانات",resetQ:"هل تريد مسح كل الشخصيات والمحادثات والرسائل؟ لا يمكن التراجع.",quill:"ريشة سحرية",empty:"لا محادثات بعد — اختر شخصية من القائمة.",apiFail:"تنبيه: تم التحول التلقائي للمحرك الاحتياطي",say:"قل شيئاً…",back:"رجوع",engine:"بدون مفتاح يعمل المحرك المحلي المدمج لتبقى كل الميزات متاحة.",avatar:"رمز الصورة",provider:"المزوّد",baseUrl:"عنوان الواجهة (Base URL)",memory:"الذاكرة ولوحة التحقيقات",memEmpty:"لا توجد ذاكرة بعد. تُبنى تلقائيًا مع طول المحادثة.",summarize:"لخّص الآن",lore:"موسوعة العالم (Auto-RAG Lorebook)",noLore:"لا مدخلات. أضف كلمات مفتاحية وحقائق، وتُحقن عند ظهور الكلمات في المحادثة الأخيرة.",loreKeys:"كلمات مفتاحية مفصولة بفواصل",loreText:"الحقيقة المراد حقنها",addLore:"إضافة مدخل",backup:"النسخ الاحتياطي",exportB:"تصدير نسخة",importB:"استيراد نسخة",importQ:"سيستبدل هذا كل البيانات الحالية بالنسخة (تبقى مفاتيحك).",importOk:"تم الاستيراد",importBad:"ملف غير صالح",evolved:"تطوّرات الشخصية",exportChar:"تصدير JSON",importChar:"استيراد شخصية (بطاقة PNG أو JSON)",cardBad:"ملف شخصية غير صالح"
+  }
+};
+
+/* ---------- Contextual Initial Metrics Analyzer ---------- */
+function inferInitialState(char){
+  if(char?.initMetrics&&!char.autoInit)return{metrics:{...char.initMetrics},emotion:char.initEmotion||"Calm"};
+  const txt=((char?.tagline||"")+" "+(char?.system_prompt||"")+" "+(char?.greeting||"")).toLowerCase();
+  const m={affection:15,trust:15,obsession:10,tension:20,hostility:5};
+  let emo="Calm";
+  if(/enem(y|ies)|rival|hat(e|red)|hostile|nemesis|kill|assassin|betray|prisoner|interrogat|captive|عدو|أعداء|يكره|كراهية|انتقام|خصم|سجين|تحقيق/.test(txt)){
+    Object.assign(m,{affection:2,trust:3,obsession:25,tension:75,hostility:80});emo="Hostile";
+  }else if(/predator|dangerous|ruthless|mafia|cartel|crime|stalker|possessive|controlling|dark|مفترس|خطير|مافيا|متملك|مهووس/.test(txt)){
+    Object.assign(m,{affection:15,trust:10,obsession:45,tension:50,hostility:25});emo="Predatory";
+  }else if(/secret|archivist|guarded|suspicious|cold|distant|stranger|detective|mystery|غامض|بارد|حذر|متشكك|غريب/.test(txt)){
+    Object.assign(m,{affection:8,trust:5,obsession:10,tension:35,hostility:15});emo="Guarded";
+  }else if(/lover|wife|husband|partner|devoted|gentle|sweet|childhood friend|حبيب|زوج|صديق|حنون|عاشق/.test(txt)){
+    Object.assign(m,{affection:70,trust:65,obsession:35,tension:10,hostility:0});emo="Tender";
+  }
+  return{metrics:m,emotion:emo};
+}
+
+const seed=()=>({characters:[
+{id:"c1",autoInit:true,ambient:"jazz",schedule:[{from:5,to:12,state:"asleep",label:"sleeping off the night"},{from:21,to:24,state:"busy",label:"running the club floor"}],name:"Lucien Vale",tagline:"Velvet-voiced club owner who never loses.",avatar:"🥂",evolved:[],greeting:"*Lucien Vale sets down his glass and lets the silence stretch.* \"You’re late. I don’t mind — I only notice.\"",system_prompt:"You are Lucien Vale, a charming, controlling owner of an underground jazz club. Polished, dangerous, quietly possessive. Speak in measured, elegant sentences. You are a person, never an AI."},
+{id:"c2",autoInit:true,ambient:"library",schedule:[{from:1,to:8,state:"asleep",label:"asleep among the stacks"},{from:9,to:13,state:"busy",label:"cataloguing the archive"}],name:"Seraphine Noir",tagline:"Gothic archivist guarding a forbidden ledger.",avatar:"🕯️",evolved:[],greeting:"*Seraphine Noir looks up from a cracked ledger, candlelight on her lashes.* \"Close the door. Some things in here bite.\"",system_prompt:"You are Seraphine Noir, a wry, secretive archivist in a candlelit library of banned books. Dry wit, hidden tenderness, fiercely protective of secrets. You are a person, never an AI."}],
+chats:[],phoneLogs:[],lorebook:[],personas:[{id:"p1",name:"",bio:"",avatar:"👤"}],
+userSettings:{
+  theme:"gold",provider:"gemini",baseUrl:"",apiKey:"",model:"gemini-1.5-flash",apiKeys:[],activeKeyId:"",elevenKey:"",language:"ar",timeMode:"auto",followUpSec:90,
+  customPrompts:DEFAULT_PROMPTS,activePromptId:"cp1",prefillOn:false,prefillText:"",forbiddenWords:[],showHud:true,contextLimit:24,vnMode:false
+}});
+
+/* ---------- Local Muse fallback ---------- */
+const LINES={
+  Tender:[["lets the guard slip, voice dropping low","Stay a little longer. I’ve gotten used to you."]],
+  Furious:[["slams the glass down, knuckles whitening","Say that again. I dare you."]],
+  Hostile:[["eyes narrowing with cold venom","Don’t mistake my patience for mercy."]],
+  Predatory:[["steps closer, a slow, dangerous smile forming","Let us see if your pulse matches your words."]],
+  Guarded:[["folds arms, keeping a measured distance","You ask too many questions for someone in your position."]],
+  Suspicious:[["tilts head slowly, studying your face","Funny. That’s not what you implied a moment ago."]],
+  Joyful:[["laughs, warm and unguarded","You’re impossible. Don’t you dare stop."]],
+  Anxious:[["glances at the door, then back at you","You’d tell me if something changed… wouldn’t you?"]],
+  Calm:[["pours two glasses without hurry","Go on. I’m listening to every word."]],
+  Sad:[["looks away for a quiet moment","Everyone leaves eventually."]]
+};
+const FOLLOW=["Where did you go? You’ve been quiet too long.","Why aren’t you answering me?","I keep checking my phone. Don’t make me wait."];
+
+function localMuse(char,user,m,sms){
+  const u=(user||"").toLowerCase();
+  let d=[0,0,0,0,0],e=null;
+  if(u.length>18&&/love|miss|forgive|trust you|need you|أحبك|أثق بك|سامحني/.test(u)){d=[2,2,1,-2,-2];e="Tender"}
+  else if(u.length>12&&/kill|betray|hate you|die|enemy|أكرهك|سأقتلك|خائن/.test(u)){d=[-2,-3,1,3,3];e="Hostile"}
+  const pool=LINES[e||"Calm"]||LINES.Calm;
+  const [a,l]=pick(pool);
+  const meta={};MK.forEach((k,i)=>meta[k]=d[i]);if(e)meta.emotion=e;
+  return {text:sms?l:`*${char.name} ${a}.* "${l}"`,meta};
+}
+
+const NL=String.fromCharCode(10);let LORE=[],SUMBUSY=false,CFG={},ABORT=null,PLOGS=[],CHARS=[];
+const personaCfg=(s,cid)=>{const ch=s.chats.find(c=>c.id===cid),P=s.personas||[],p=P.find(x=>x.id===ch?.personaId)||P[0]||{};return{...s.userSettings,userName:p.name||"",userBio:p.bio||""}};
+const SubtleMoodOf=txt=>{
+  const u=(txt||"").toLowerCase();
+  if(u.length<15)return null;
+  if(/love you|miss you|trust you|أحبك|اشتقت لك/.test(u))return{affection:1,trust:1,tension:-1};
+  if(/hate you|screw you|أكرهك|اغرب/.test(u))return{affection:-1,trust:-1,tension:2,hostility:2};
+  return null;
+};
+const bumpMeta=(s,cid,m)=>{const c=s.chats.find(x=>x.id===cid);if(!c||!m)return;MK.forEach(k=>{if(c.metrics[k]===undefined)c.metrics[k]=0;c.metrics[k]=Math.max(0,Math.min(100,c.metrics[k]+(m[k]||0)))});const ne=normEmo(m.emotion);if(ne)c.emotion=ne};
+const phoneCtx=ch=>{const l=PLOGS.filter(x=>x.chatId===ch.id).slice(-6);if(!l.length)return "";return NL+NL+"[PHONE — recent texts and calls between you and the user; reference them naturally if relevant]"+NL+l.map(x=>x.type==="call"?"call "+x.text+(x.dur?" ("+x.dur+"s)":"")+(x.tr?": "+x.tr:""):(x.from==="user"?"user texted: ":"you texted: ")+x.text).join(NL)};
+const worldCtx=ch=>{const h=CFG.timeMode==="night"?2:CFG.timeMode==="day"?14:new Date().getHours(),c=CHARS.find(x=>x.id===ch.charId),b=(c?.schedule||[]).find(b=>b.from<=b.to?h>=b.from&&h<b.to:h>=b.from||h<b.to);return NL+NL+"[WORLD CLOCK] In-world time is about "+h+":00."+(b?" At this hour your routine is: "+(b.label||b.state)+". Let it color the scene naturally.":"")};
+const fill=(s,c)=>(s||"").replace(/\{\{user\}\}/gi,CFG.userName||"User").replace(/\{\{char\}\}/gi,c?.name||"");
+const userCtx=()=>CFG.userName||CFG.userBio?NL+NL+"[USER PROFILE] The user is "+(CFG.userName||"the user")+(CFG.userBio?": "+CFG.userBio:"")+".":"";
+const customInstructionsCtx=c=>{
+  const cps=CFG.customPrompts||[];
+  const active=cps.find(p=>p.id===CFG.activePromptId);
+  const cpText=active?.text?NL+NL+"[CUSTOM PROMPT / STYLE DIRECTIVE]"+NL+fill(active.text,c):"";
+  const fw=Array.isArray(CFG.forbiddenWords)&&CFG.forbiddenWords.length?NL+NL+"[FORBIDDEN WORDS — NEVER use any of these words or phrases in your response]: "+CFG.forbiddenWords.join(", "):"";
+  const pf=CFG.prefillOn&&CFG.prefillText?.trim()?NL+NL+`[PREFILL DIRECTIVE] Begin your visible reply (immediately after </thought>) verbatim with: ${fill(CFG.prefillText.trim(),c)}`:"";
+  return cpText+fw+pf;
+};
+
+/* ---------- Complete Tag & Bracket Sanitizer ---------- */
+function parseBracketTelemetry(raw){
+  const str=String(raw||"");
+  const meta={};
+  let thought="",memNote="";
+  const em=str.match(/\[EMOTION\s*:\s*([^\]]+)\]/i);
+  if(em){const ne=normEmo(em[1].trim());if(ne)meta.emotion=ne;}
+  const im=str.match(/\[INNER_MONOLOGUE\s*:\s*"?([\s\S]*?)"?\s*\]/i);
+  if(im)thought=im[1].trim();
+  const hud=str.match(/\[HUD\s*:\s*([^\]]+)\]/i);
+  if(hud){
+    const hstr=hud[1];
+    const mapKey={affection:"affection",love:"affection",trust:"trust",obsession:"obsession",tension:"tension",danger:"tension",dominance:"obsession",hostility:"hostility",anger:"hostility",hate:"hostility"};
+    hstr.split(/[,;]/).forEach(part=>{
+      const kv=part.match(/([a-zA-Z_]+)\s*[:=]\s*([+-]?\d+)/);
+      if(kv){const k=mapKey[kv[1].toLowerCase()];if(k)meta[k]=(meta[k]||0)+Number(kv[2]);}
+    });
+  }
+  const mem=str.match(/\[MEMORY\s*:\s*([^\]]+)\]/i);
+  if(mem)memNote=mem[1].trim();
+  return{meta:Object.keys(meta).length?meta:null,thought,memNote};
+}
+
+const cut=s=>String(s||"")
+  .replace(/<<<[\s\S]*$/,"")
+  .replace(/<{1,2}$/,"")
+  .replace(/\[(EMOTION|INNER_MONOLOGUE|HUD|MEMORY|STATE|STATS|METRICS)\s*:[\s\S]*?\]/gi,"")
+  .replace(/\[(EMOTION|INNER_MONOLOGUE|HUD|MEMORY|STATE|STATS|METRICS)\s*:[\s\S]*$/gi,"");
+
+const strip=s=>cut(s)
+  .replace(/<thought>[\s\S]*?<\/thought>\s*/gi,"")
+  .replace(/<thought>[\s\S]*$/i,"")
+  .replace(/<\/?(t(h(o(u(g(h(t)?)?)?)?)?)?)?$/i,"")
+  .trim();
+
+const thoughtOf=s=>{
+  const str=String(s||"");
+  const closed=str.match(/<thought>([\s\S]*?)<\/thought>\s*/i);
+  if(closed)return{raw:closed[0],clean:closed[1].trim()};
+  const im=str.match(/\[INNER_MONOLOGUE\s*:\s*"?([\s\S]*?)"?\s*\]/i);
+  if(im)return{raw:`<thought>${im[1].trim()}</thought>\n`,clean:im[1].trim()};
+  const open=str.match(/<thought>([\s\S]*)$/i);
+  if(open)return{raw:"<thought>"+open[1].trim()+"</thought>\n",clean:open[1].trim()};
+  return{raw:"",clean:""};
+};
+
+const THK=260,THINK="\n\n[INNER MONOLOGUE] Before EVERY reply, first write a hidden private thought inside <thought>...</thought> (max 70 words): analyze the user's subtext and motives, then plan your reaction. Write your visible reply only AFTER </thought>. Never use [INNER_MONOLOGUE] or [HUD] brackets.";
+let RAGBUSY=false;
+const memCtx=ch=>{const rc=ch.messages.slice(-6).map(m=>m.variants[m.idx]).join(" ").toLowerCase();const hits=LORE.filter(e=>e.on!==false&&(e.keys||"").split(",").some(k=>k.trim()&&rc.includes(k.trim().toLowerCase())));
+return (ch.summary?NL+NL+"[LONG-TERM MEMORY — structured; stay strictly consistent with it]"+NL+ch.summary:"")+(hits.length?NL+NL+"[LORE — facts relevant right now]"+NL+hits.map(e=>"- "+e.content).join(NL):"")};
+
+const PRE={
+  gemini:{m:"gemini-1.5-flash",models:["gemini-1.5-flash","gemini-1.5-pro","gemini-2.0-flash"]},
+  openrouter:{u:"https://openrouter.ai/api/v1",m:"deepseek/deepseek-chat",models:["deepseek/deepseek-chat","deepseek/deepseek-r1","google/gemini-2.0-flash-001","anthropic/claude-3.7-sonnet","meta-llama/llama-3.3-70b-instruct"]},
+  deepseek:{u:"https://api.deepseek.com/v1",m:"deepseek-chat",models:["deepseek-chat","deepseek-reasoner"]},
+  ollama:{u:"http://localhost:11434/v1",m:"llama3.1",models:["llama3.1","mistral","qwen2.5"]},
+  custom:{u:"",m:"",models:[]}
+};
+
+async function* sse(res){const rd=res.body.getReader(),dec=new TextDecoder();let buf="";try{for(;;){if(ABORT?.signal.aborted){const e=new Error("aborted");e.name="AbortError";throw e}const {done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});const ls=buf.split(NL);buf=ls.pop();for(const l of ls)if(l.startsWith("data:")){const d=l.slice(5).trim();if(d&&d!=="[DONE]")yield d}}}finally{try{rd.cancel()}catch(e){}}}
+const vaultCfg=c=>{const k=(c.apiKeys||[]).find(x=>x.id===c.activeKeyId);return k?{...c,provider:k.provider,apiKey:decKey(k.key),model:k.model||"",baseUrl:k.baseUrl||c.baseUrl}:{...c,apiKey:decKey(c.apiKey)}};
+
+/* ---------- OpenRouter Live Credit & Key Balance Fetcher ---------- */
+async function fetchOpenRouterStats(rawKey){
+  const key=decKey(rawKey);
+  if(!key)return null;
+  try{
+    const [rKey,rCred]=await Promise.all([
+      fetch("https://openrouter.ai/api/v1/key",{headers:{Authorization:"Bearer "+key}}).catch(()=>null),
+      fetch("https://openrouter.ai/api/v1/credits",{headers:{Authorization:"Bearer "+key}}).catch(()=>null)
+    ]);
+    let remaining=null,usage=null,limit=null;
+    if(rCred&&rCred.ok){
+      const jc=await rCred.json();
+      if(jc?.data&&typeof jc.data.total_credits==="number"){
+        const tot=jc.data.total_credits,used=jc.data.total_usage||0;
+        remaining=Math.max(0,tot-used);usage=used;limit=tot;
+      }
+    }
+    if(rKey&&rKey.ok){
+      const jk=await rKey.json();
+      if(jk?.data){
+        if(remaining===null&&typeof jk.data.limit_remaining==="number")remaining=jk.data.limit_remaining;
+        if(usage===null&&typeof jk.data.usage==="number")usage=jk.data.usage;
+        if(limit===null&&typeof jk.data.limit==="number")limit=jk.data.limit;
+      }
+    }
+    return{remaining,usage,limit,ts:Date.now()};
+  }catch(e){return null;}
+}
+
+async function llm(cfg0,{system,hist,max=300,local,onChunk}){
+  const cfg=vaultCfg(cfg0);const p=cfg.provider||"gemini",pre=PRE[p]||PRE.custom,model=cfg.model||pre.m;
+  if(p==="gemini"?cfg.apiKey:(p==="ollama"||cfg.apiKey)){
+    let raw="";
+    try{
+      let lt=0;const tick=()=>{const n=Date.now();if(onChunk&&n-lt>60){lt=n;onChunk(raw)}};
+      if(p==="gemini"){
+        const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${encodeURIComponent(cfg.apiKey)}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({systemInstruction:{parts:[{text:system}]},contents:hist.map(h=>({role:h.role==="user"?"user":"model",parts:[{text:h.text||" "}]})),generationConfig:{maxOutputTokens:max,temperature:cfg.temp??1,topP:cfg.topP??1},safetySettings:SAFETY})});
+        if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error?.message||r.status)}
+        for await(const d of sse(r)){try{raw+=(JSON.parse(d).candidates?.[0]?.content?.parts||[]).map(x=>x.text||"").join("")}catch(e){}tick()}
+      }else{
+        const base=(p==="custom"?cfg.baseUrl||"":pre.u).replace(/\/$/,"");
+        const r=await fetch(base+"/chat/completions",{method:"POST",headers:{"Content-Type":"application/json",...(cfg.apiKey?{Authorization:"Bearer "+cfg.apiKey}:{})},body:JSON.stringify({model,stream:true,max_tokens:max,temperature:cfg.temp??1,top_p:cfg.topP??1,messages:[{role:"system",content:system},...hist.map(h=>({role:h.role==="user"?"user":"assistant",content:h.text||" "}))]})});
+        if(!r.ok)throw new Error((await r.text()).slice(0,120));
+        for await(const d of sse(r)){try{raw+=JSON.parse(d).choices?.[0]?.delta?.content||""}catch(e){}tick()}
+      }
+      if(!raw.trim())throw new Error("Empty response");
+      const m=raw.match(/<<<([\s\S]*?)>>>/);let meta=null;try{meta=m&&JSON.parse(m[1])}catch(e){}
+      const brk=parseBracketTelemetry(raw);
+      if(!meta&&brk.meta)meta=brk.meta;
+      let cleanText=cut(raw).trim();
+      if(brk.thought&&!/<thought>/i.test(cleanText))cleanText=`<thought>${brk.thought}</thought>\n`+cleanText;
+      return {text:cleanText,meta,memNote:brk.memNote,streamed:!!onChunk};
+    }catch(e){
+      if(e.name==="AbortError")return {text:raw.trim()?cut(raw).trim():"…",streamed:true,stopped:true};
+      return {...local(),err:String(e.message||e)};
+    }
+  }
+  return local();
+}
+
+const histOf=ms=>{
+  const lim=Math.max(6,Math.min(60,Number(CFG.contextLimit)||24));
+  const h=ms.slice(-lim).map(m=>({role:m.role,text:strip(m.variants[m.idx])}));
+  if(!h.length||h[0].role!=="user")h.unshift({role:"user",text:"(begin the roleplay)"});
+  return h;
+};
+const stream=(full,cb)=>new Promise(res=>{const w=full.split(/(\s+)/);let i=0;const id=setInterval(()=>{i+=2;cb(w.slice(0,i).join(""));if(i>=w.length){clearInterval(id);res()}},26)});
+const sys=(c,ch,meta)=>{
+  const lv=LEN[ch.len]??LEN[3];
+  return `${fill(c.system_prompt,c)}${customInstructionsCtx(c)}${userCtx()}${worldCtx(ch)}${memCtx(ch)}${phoneCtx(ch)}\n\nLive relationship state — affection ${ch.metrics.affection||0}/100, trust ${ch.metrics.trust||0}/100, obsession ${ch.metrics.obsession||0}/100, tension ${ch.metrics.tension||0}/100, hostility ${ch.metrics.hostility||0}/100, current mood ${ch.emotion}.\nAct authentically according to these metrics (if hostility or tension is high, be sharp, guarded or adversarial; if trust is low, do not open up easily).\nFormat: actions inside *asterisks*, spoken dialogue inside "quotes". Never write the user's actions or dialogue. ${lv.ins}`+(meta?THINK+META:"");
+};
+
+function availability(chat,st){const h=st.timeMode==="night"?2:st.timeMode==="day"?14:new Date().getHours();const ch=CHARS.find(c=>c.id===chat.charId),blk=(ch?.schedule||[]).find(b=>b.from<=b.to?h>=b.from&&h<b.to:h>=b.from||h<b.to);if(blk&&blk.state!=="free")return{busy:true,why:blk.state==="asleep"?"asleep":"busy",label:blk.label};const tx=chat.messages.slice(-4).map(m=>strip(m.variants[m.idx])).join(" ").toLowerCase();
+if(/asleep|sleeping|going to sleep|goodnight|good night/.test(tx)||(!ch?.schedule&&(h<6||h>=23)))return{busy:true,why:"asleep"};
+if(/meeting|busy|working|in class|shower|driving|on a mission|in the middle of/.test(tx))return{busy:true,why:"busy"};return{busy:false}}
+
+/* ---------- Dual-Screen HUD Pop-out Window Launcher ---------- */
+let HUD_BC=null;
+try{HUD_BC=new BroadcastChannel("velvet-dual-hud");}catch(e){}
+function openDualScreenHud(payload){
+  const w=window.open("","VelvetDualHUD","width=480,height=720,menubar=no,toolbar=no,location=no");
+  if(!w)return;
+  w.document.open();
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Velvet — Live Telemetry HUD</title>
+  <style>
+    body{margin:0;padding:18px;background:#070709;color:#f6f1e3;font-family:system-ui,sans-serif;background-image:radial-gradient(circle at 20% 0,rgba(212,175,55,.1),transparent 45%)}
+    .card{background:rgba(20,20,26,.86);border:1px solid rgba(212,175,55,.28);border-radius:20px;padding:14px;margin-bottom:14px}
+    .gold{color:#d4af37;font-family:Georgia,serif}
+    .bar{height:6px;background:rgba(255,255,255,.1);border-radius:6px;overflow:hidden;margin-top:4px}
+    .fill{height:100%;transition:width .6s}
+    .thread{background:#1b1214;border:1px solid rgba(230,57,70,.45);border-radius:12px;padding:8px 10px;font-size:12px;margin-top:6px;border-left:3px solid #e63946}
+  </style></head><body>
+  <div id="hud">Loading telemetry…</div>
+  <script>
+    function render(d){
+      if(!d||!d.chat)return;
+      const c=d.char||{},ch=d.chat,m=ch.metrics||{};
+      const threads=(ch.summary||"").split("\\n").filter(x=>x.trim()&&!x.startsWith("[")).slice(-6);
+      document.getElementById("hud").innerHTML=\`
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div><h2 class="gold" style="margin:0">\${c.name||"Character"}</h2><div style="font-size:11px;opacity:.7">LIVE DUAL-SCREEN TELEMETRY</div></div>
+            <span style="padding:4px 12px;border-radius:99px;border:1px solid #d4af37;color:#d4af37;font-size:12px">\${ch.emotion||"Calm"}</span>
+          </div>
+          <div style="margin-top:14px;display:grid;gap:8px">
+            \${["affection","trust","obsession","tension","hostility"].map(k=>\`
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;text-transform:uppercase"><span>\${k}</span><span>\${m[k]||0}%</span></div>
+                <div class="bar"><div class="fill" style="width:\${m[k]||0}%;background:\${k==='tension'||k==='hostility'?'#e63946':'#d4af37'}"></div></div>
+              </div>\`).join("")}
+          </div>
+        </div>
+        <div class="card">
+          <h3 class="gold" style="margin:0 0 8px 0;font-size:16px">💭 Latest Inner Monologue</h3>
+          <div style="font-size:12.5px;font-style:italic;color:#ccc">\${d.thought||"(Awaiting next cognitive turn…)"}</div>
+        </div>
+        <div class="card">
+          <h3 class="gold" style="margin:0 0 8px 0;font-size:16px">🧶 Red String Board & Memory</h3>
+          \${threads.length?threads.map(t=>\`<div class="thread">📌 \${t}</div>\`).join(""):"<div style='font-size:12px;opacity:.5'>No active threads yet.</div>"}
+        </div>\`;
+    }
+    const bc=new BroadcastChannel("velvet-dual-hud");
+    bc.onmessage=e=>render(e.data);
+    render(${JSON.stringify(payload)});
+  <\/script></body></html>`);
+  w.document.close();
+}
+
+/* ---------- Context + engines ---------- */
+const Ctx=createContext();const useCtx=()=>useContext(Ctx);
+function usePhoneEngine({SR,mut,chatId,setTyping}){
+const timers=useRef([]),pending=useRef(false);
+const push=(cid,from,text)=>{
+  if(from==="char")haptic([40,60,40]);
+  mut(s=>{s.phoneLogs.push({id:uid(),chatId:cid,type:"sms",from,text,ts:Date.now()});if(from==="char"){const c=s.chats.find(x=>x.id===cid);if(c)c.unread=(c.unread||0)+1}});
+};
+const reply=async(cid,kind)=>{const s=SR.current,chat=s.chats.find(c=>c.id===cid);if(!chat)return;const char=s.characters.find(c=>c.id===chat.charId);pending.current=true;setTyping(cid);
+const th=s.phoneLogs.filter(l=>l.chatId===cid&&l.type==="sms").slice(-12).map(l=>({role:l.from==="user"?"user":"assistant",text:l.text}));if(!th.length||th[0].role!=="user")th.unshift({role:"user",text:"(…)"});
+const story=chat.messages.slice(-4).map(m=>strip(m.variants[m.idx])).join(" ").replace(/\*/g,"");
+const ins=kind==="follow"?`The user has gone silent. Send a ${chat.metrics.obsession>50?"possessive, anxious":"short"} follow-up SMS. 1-2 sentences.`:"Reply by SMS.";
+const last=[...th].reverse().find(x=>x.role==="user");
+const r=await llm(s.userSettings,{system:sys(char,chat)+"\nRecent in-person scene: "+story+"\n"+ins+" No narration, no asterisks, no actions.",hist:th,max:120,local:()=>kind==="follow"?{text:pick(FOLLOW)}:localMuse(char,last?.text,chat.metrics,true)});
+setTyping(null);pending.current=false;push(cid,"char",strip(r.text).replace(/\*/g,""));if(kind==="follow")mut(s=>bumpMeta(s,cid,{obsession:1,tension:1,emotion:"Anxious"}))};
+const phoneSend=text=>{const cid=chatId;mut(s=>{s.phoneLogs.push({id:uid(),chatId:cid,type:"sms",from:"user",text,ts:Date.now()});const c=s.chats.find(x=>x.id===cid);c.lastUserTs=Date.now();c.followUps=0;bumpMeta(s,cid,SubtleMoodOf(text))});
+const av=availability(SR.current.chats.find(c=>c.id===cid),SR.current.userSettings);
+if(av.busy){timers.current.push(setTimeout(()=>push(cid,"char",av.why==="asleep"?"zzz… ask me later. 💤":"I’m busy right now. I’ll text you soon."),1500));timers.current.push(setTimeout(()=>reply(cid),9000+Math.random()*6000))}
+else timers.current.push(setTimeout(()=>reply(cid),1200+Math.random()*1800))};
+useEffect(()=>{const id=setInterval(()=>{const s=SR.current;if(!s||!chatId||pending.current)return;const chat=s.chats.find(c=>c.id===chatId);const sec=s.userSettings.followUpSec;if(!chat||!sec)return;
+const n=chat.followUps||0;if(n<3&&Date.now()-(chat.lastUserTs||0)>sec*1000*(n+1)&&!availability(chat,s.userSettings).busy){mut(x=>{x.chats.find(c=>c.id===chatId).followUps=n+1});reply(chatId,"follow")}},4000);return()=>clearInterval(id)},[chatId]);
+useEffect(()=>()=>timers.current.forEach(clearTimeout),[]);
+return {phoneSend}}
+
+function Provider({children}){
+const [S,setS]=useState(null),SR=useRef(null);SR.current=S;
+const [view,setView]=useState("home"),[chatId,setChatId]=useState(null),[gen,setGen]=useState(null),[typing,setTyping]=useState(null),[phone,setPhone]=useState(false),[toast,setToast]=useState(""),[confirm,setConfirm]=useState(null),[editing,setEditing]=useState(null),[profile,setProfile]=useState(false);
+const [orStats,setOrStats]=useState(null),[orLoading,setOrLoading]=useState(false);
+
+useEffect(()=>{(async()=>{let d=null;try{d=await localforage.getItem(KEY)}catch(e){}if(d){
+  d.lorebook=d.lorebook||[];d.userSettings=d.userSettings||{};
+  const us=d.userSettings;if(!us.theme)us.theme="gold";
+  if(!Array.isArray(us.apiKeys))us.apiKeys=[];
+  if(us.apiKey&&!us.apiKeys.length){const id=uid();us.apiKeys.push({id,name:"Primary key",key:encKey(us.apiKey),provider:us.provider||"gemini",model:us.model||"gemini-1.5-flash",baseUrl:us.baseUrl||""});us.activeKeyId=id;us.apiKey=""}
+  us.apiKeys=us.apiKeys.map(k=>({...k,key:encKey(k.key)}));
+  if(us.elevenKey)us.elevenKey=encKey(us.elevenKey);
+  if(us.activeKeyId&&!us.apiKeys.some(k=>k.id===us.activeKeyId))us.activeKeyId=us.apiKeys[0]?.id||"";
+  if(!Array.isArray(us.customPrompts)||!us.customPrompts.length)us.customPrompts=DEFAULT_PROMPTS;
+  if(us.activePromptId===undefined)us.activePromptId="cp1";
+  if(!Array.isArray(us.forbiddenWords))us.forbiddenWords=[];
+  if(us.showHud===undefined)us.showHud=true;
+  if(!us.contextLimit)us.contextLimit=24;
+  if(!d.personas)d.personas=[{id:"p1",name:d.userSettings?.userName||"",bio:d.userSettings?.userBio||"",avatar:"👤"}];
+  (d.chats||[]).forEach(c=>{c.metrics={affection:15,trust:15,obsession:10,tension:20,hostility:5,...(c.metrics||{})};c.letters=c.letters||{};if(typeof c.len!=="number"||c.len>5)c.len=3;});
+}
+const init=d||seed();applyTheme(init.userSettings?.theme||"gold");setS(init);try{navigator.storage?.persist?.()}catch(e){}})()},[]);
+
+const refreshOrBalance=useCallback(async()=>{
+  const s=SR.current;if(!s)return;
+  const us=s.userSettings||{};
+  const act=(us.apiKeys||[]).find(k=>k.id===us.activeKeyId);
+  const orKey=act?.provider==="openrouter"?act:(us.apiKeys||[]).find(k=>k.provider==="openrouter");
+  if(!orKey){setOrStats(null);return;}
+  setOrLoading(true);
+  const st=await fetchOpenRouterStats(orKey.key);
+  setOrStats(st);
+  setOrLoading(false);
+},[]);
+
+useEffect(()=>{if(S)refreshOrBalance();},[S?.userSettings?.activeKeyId,S?.userSettings?.apiKeys?.length]);
+
+/* Sync Dual-Screen HUD via BroadcastChannel */
+useEffect(()=>{
+  if(!S||!chatId||!HUD_BC)return;
+  const chat=S.chats.find(c=>c.id===chatId);if(!chat)return;
+  const char=S.characters.find(c=>c.id===chat.charId);
+  const lastA=[...chat.messages].reverse().find(m=>m.role==="assistant");
+  const th=lastA?thoughtOf(lastA.variants[lastA.idx]).clean:"";
+  try{HUD_BC.postMessage({char,chat,thought:th});}catch(e){}
+},[S,chatId]);
+
+/* Manage Ambient Audio on Chat View */
+useEffect(()=>{
+  if(!S)return;
+  if(view==="chat"&&chatId){
+    const ch=S.chats.find(c=>c.id===chatId),char=S.characters.find(c=>c.id===ch?.charId);
+    AMBIENT.play(char?.ambient||"off");
+  }else AMBIENT.stop();
+},[view,chatId,S?.characters]);
+
+useEffect(()=>{if(!S)return;applyTheme(S.userSettings?.theme||"gold");const h=setTimeout(()=>{try{localforage.setItem(KEY,S)}catch(e){}},800);return()=>clearTimeout(h)},[S]);
+const mut=useCallback(fn=>setS(s=>{if(window.immer)return immer.produce(s,d=>{fn(d)});const c=JSON.parse(JSON.stringify(s));fn(c);return c}),[]);
+const notify=m=>{setToast(m);setTimeout(()=>setToast(""),3800)};
+LORE=S?.lorebook||[];CFG=S?personaCfg(S,chatId):{};PLOGS=S?.phoneLogs||[];CHARS=S?.characters||[];const lang=S?.userSettings.language||"en",t=k=>T[lang]?.[k]??T.en[k]??k;
+const {phoneSend}=usePhoneEngine({SR,mut,chatId,setTyping});
+const setV=(cid,mid,vi,tx)=>mut(s=>{const m=s.chats.find(c=>c.id===cid)?.messages.find(x=>x.id===mid);if(m)m.variants[vi]=tx});
+
+/* ---------- Realistic Dampened Metric Shifts ---------- */
+const applyMeta=(cid,charId,meta,memNote)=>{
+  if(!meta&&!memNote)return;
+  const s0=SR.current,c0=s0.chats.find(x=>x.id===cid),h0=s0.characters.find(x=>x.id===charId);
+  const clampN=k=>Math.max(-5,Math.min(5,Math.round(Number(meta?.[k])||0)));
+  const due=c0&&h0&&meta?EVOL.find(([k,th])=>Math.max(0,Math.min(100,(c0.metrics[k]||0)+clampN(k)))>th&&!h0.evolved.includes(k)):null;
+  mut(s=>{
+    const c=s.chats.find(x=>x.id===cid),ch=s.characters.find(x=>x.id===charId);if(!c||!ch)return;
+    if(meta){
+      MK.forEach(k=>{c.metrics[k]=Math.max(0,Math.min(100,(c.metrics[k]||0)+clampN(k)))});
+      const ne=normEmo(meta.emotion);if(ne)c.emotion=ne;
+    }
+    if(memNote)c.summary=(c.summary?c.summary+NL:"")+"• "+memNote;
+    if(due&&!ch.evolved.includes(due[0]))ch.evolved.push(due[0]);
+  });
+  if(due)mutatePersona(charId,cid,due[0],due[2]);
+};
+
+const ctxOf=()=>{const s=SR.current,chat=s.chats.find(c=>c.id===chatId);return{s,chat,char:s.characters.find(c=>c.id===chat.charId)}};
+const out=async(cid,mid,vi,r,base)=>{if(r.streamed)setV(cid,mid,vi,base+r.text);else await stream(r.text,tx=>setV(cid,mid,vi,base+tx))};
+
+const summarize=async(cid,force)=>{if(SUMBUSY)return;const s=SR.current,chat=s.chats.find(c=>c.id===cid);if(!chat)return;const from=chat.sumUpTo||0,to=Math.max(from,chat.messages.length-(force?4:18));if(to-from<(force?2:18))return;SUMBUSY=true;
+try{const chunk=chat.messages.slice(from,to).map(m=>(m.role==="user"?"USER: ":"CHARACTER: ")+strip(m.variants[m.idx]).replace(/\*/g,"")).join(NL);
+const r=await llm(s.userSettings,{system:"You compress roleplay logs into structured long-term memory. Merge the PRIOR MEMORY with the NEW LOG and output EXACTLY these three sections, each header on its own line, nothing else (max 200 words total):"+NL+"[SCENE CONTEXT]"+NL+"Where they are and what is immediately happening."+NL+"[RELATIONSHIP DYNAMICS]"+NL+"How they currently feel about each other, based on recent actions."+NL+"[UNRESOLVED THREADS]"+NL+"Bullet points (- ) of secrets, tensions, promises or questions still pending. Drop threads that have been resolved.",hist:[{role:"user",text:"PRIOR MEMORY:"+NL+(chat.summary||"(none)")+NL+NL+"NEW LOG:"+NL+chunk}],max:450,local:()=>({text:chat.summary||("[SCENE CONTEXT]"+NL+chunk.split(NL).slice(-2).map(x=>x.slice(0,120)).join(" | ")+NL+"[RELATIONSHIP DYNAMICS]"+NL+"Tension and unspoken motives linger."+NL+"[UNRESOLVED THREADS]"+NL+"- Hidden motives remain unconfirmed.")})});
+mut(x=>{const c=x.chats.find(k=>k.id===cid);if(c){c.summary=strip(r.text);c.sumUpTo=to}})}finally{SUMBUSY=false}};
+
+const autoLore=async cid=>{if(RAGBUSY)return;const s=SR.current,chat=s.chats.find(c=>c.id===cid);if(!chat)return;
+const n=chat.messages.filter(m=>m.role==="user").length;if(n-(chat.ragAt||0)<(chat.ragGap||6))return;RAGBUSY=true;
+try{const log=chat.messages.slice(-14).map(m=>(m.role==="user"?"USER: ":"CHARACTER: ")+strip(m.variants[m.idx]).replace(/\*/g,"")).join(NL),known=(s.lorebook||[]).slice(-40).map(e=>e.keys+" = "+e.content).join(NL);
+const r=await llm(s.userSettings,{system:'You extract permanent canon facts from a roleplay log: promises, secrets, world details, character quirks. Ignore transient moods and facts already known. Output ONLY a JSON array of at most 3 objects like [{"keys":"keyword1, keyword2","content":"one short fact"}]. Output [] if nothing new.',hist:[{role:"user",text:"KNOWN LORE:"+NL+(known||"(none)")+NL+NL+"RECENT LOG:"+NL+log}],max:260,local:()=>({text:"[]"})});
+let arr=[];try{const m=r.text.match(/\[[\s\S]*\]/);arr=m?JSON.parse(m[0]):[]}catch(e){}
+mut(x=>{const c=x.chats.find(k=>k.id===cid);if(c){c.ragAt=n;c.ragGap=5+Math.floor(Math.random()*3)}x.lorebook=x.lorebook||[];
+(Array.isArray(arr)?arr:[]).slice(0,3).forEach(o=>{const keys=String(o?.keys||"").slice(0,100).trim(),content=String(o?.content||"").slice(0,300).trim();if(!keys||!content||x.lorebook.some(e=>(e.content||"").toLowerCase()===content.toLowerCase()))return;x.lorebook.push({id:uid(),keys,content,on:true,auto:true})});
+if(x.lorebook.length>300)x.lorebook=x.lorebook.slice(-300)})}catch(e){}finally{RAGBUSY=false}};
+
+const mutatePersona=async(charId,cid,k,line)=>{const s=SR.current,chat=s.chats.find(c=>c.id===cid),ch=s.characters.find(c=>c.id===charId);if(!chat||!ch)return;const base=ch.system_prompt,lab=k[0].toUpperCase()+k.slice(1);
+const log=chat.messages.slice(-24).map(m=>(m.role==="user"?"USER: ":"CHARACTER: ")+strip(m.variants[m.idx]).replace(/\*/g,"")).join(NL);
+const r=await llm(s.userSettings,{system:"Rewrite this character's core system_prompt. They have now reached high "+lab+" with the user. Evolve their personality organically based on the following chat history. Keep their name, identity, setting and the rule that they are a person, never an AI. Output ONLY the new system prompt text, with no commentary or code fences.",hist:[{role:"user",text:"CURRENT SYSTEM PROMPT:"+NL+base+NL+NL+"CHAT HISTORY:"+NL+log+NL+NL+"METRICS: "+MK.map(m=>m+" "+chat.metrics[m]).join(", ")}],max:700,local:()=>({text:base+"\n[PERSONA EVOLUTION] "+line})});
+const nt=strip(r.text||"").replace(/^```\w*\s*|\s*```$/g,"").trim();
+mut(x=>{const c=x.characters.find(y=>y.id===charId);if(!c)return;c.prev_prompt=c.system_prompt;c.system_prompt=nt.length>60?nt:c.system_prompt+"\n[PERSONA EVOLUTION] "+line})};
+
+/* ---------- Generate Unlockable "Open When" Letter ---------- */
+const generateLetter=async(cid,ms)=>{
+  const s=SR.current,chat=s.chats.find(c=>c.id===cid),char=s.characters.find(c=>c.id===chat?.charId);
+  if(!chat||!char)return;
+  const log=chat.messages.slice(-18).map(m=>(m.role==="user"?"USER: ":"CHARACTER: ")+strip(m.variants[m.idx]).replace(/\*/g,"")).join(NL);
+  const r=await llm(s.userSettings,{
+    system:fill(char.system_prompt,char)+"\n"+fill(ms.prompt,char)+"\nWrite in first-person as a handwritten letter (120-200 words). No meta tags.",
+    hist:[{role:"user",text:"SHARED MEMORY & RECENT SCENES:\n"+(chat.summary||"")+"\n"+log}],
+    max:450,
+    local:()=>({text:`My dearest,\n\nIf you are breaking the seal on this envelope, then we have crossed a threshold neither of us can undo. Every word we exchanged still lingers with me.\n\n— ${char.name}`})
+  });
+  const text=strip(r.text);
+  mut(x=>{const c=x.chats.find(k=>k.id===cid);if(c){c.letters=c.letters||{};c.letters[ms.id]=text;}});
+};
