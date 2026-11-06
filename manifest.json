@@ -5,15 +5,20 @@
   "display": "standalone",
   "name": "miro212",
   "orientation": "any",
-  "scope": "/",
+  "scope": "/ai-studio-app/",
   "short_name": "miro",
-  "start_url": "/",
+  "start_url": "/ai-studio-app/",
   "theme_color": "#ff3f9a",
   "id": "com.miro212.miroiapp",
   "icons": [
     {
-      "src": "/launchericon-512x512.png",
+      "src": "launchericon-512x512.png",
       "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "launchericon-512x512.png",
+      "sizes": "192x192",
       "type": "image/png"
     }
   ]
